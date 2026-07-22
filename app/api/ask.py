@@ -43,11 +43,20 @@ async def ask_question(request: AskRequest) -> AskResponse:
     retriever = app_state.get("retriever")
     llm_client = app_state.get("llm_client")
 
-    if retriever is None or llm_client is None:
+    if retriever is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="RAG pipeline is not yet initialised.",
         )
+    if llm_client is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "GEMINI_API_KEY is not configured. "
+                "Add your key to the .env file and restart the server."
+            ),
+        )
+
 
     # ── Validate session ──────────────────────────────────────────────────────
 

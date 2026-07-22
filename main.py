@@ -13,9 +13,14 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator
+
+# Suppress non-fatal FutureWarnings from Google SDK on Python 3.9
+warnings.filterwarnings("ignore", category=FutureWarning, module="google")
+warnings.filterwarnings("ignore", category=UserWarning, module="urllib3")
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, status
@@ -85,11 +90,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Gemini LLM client
     api_key = os.getenv("GEMINI_API_KEY", "")
-    app_state["llm_client"] = GeminiLLMClient(
-        api_key=api_key,
-        model_name=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
-        max_output_tokens=int(os.getenv("GEMINI_MAX_TOKENS", "1024")),
-    )
+    _placeholder = not api_key or api_key == "your_gemini_api_key_here"
+    if _placeholder:
+        logger.warning(
+            "⚠️  GEMINI_API_KEY is not set. "
+            "The /ask endpoint will fail until you add a valid key to .env."
+        )
+        app_state["llm_client"] = None
+    else:
+        app_state["llm_client"] = GeminiLLMClient(
+            api_key=api_key,
+            model_name=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+            max_output_tokens=int(os.getenv("GEMINI_MAX_TOKENS", "1024")),
+        )
     app_state["active_session_id"] = None
 
     logger.info("All services initialised. Application ready.")
