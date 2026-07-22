@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="Chemistry AI Tutor — Ask questions about your chemistry textbook and get grounded, cited answers powered by RAG and Google Gemini." />
+  <title>Chemistry AI Tutor</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════ HEADER ═══════════════════════ -->
+  <header class="app-header" role="banner">
+    <div class="header-inner">
+      <div class="logo-group">
+        <div class="logo-icon" aria-hidden="true">⚗️</div>
+        <div class="logo-text">
+          <h1 class="app-title">Chem<span class="accent">Mentor</span></h1>
+          <p class="app-subtitle">AI-Powered Chemistry Tutor</p>
+        </div>
+      </div>
+      <div class="header-badges">
+        <span class="badge badge--rag">RAG</span>
+        <span class="badge badge--gemini">Gemini</span>
+        <span id="status-indicator" class="status-dot status-dot--idle" title="Idle"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════ MAIN LAYOUT ═══════════════════════ -->
+  <main class="main-layout" role="main">
+
+    <!-- ─── LEFT PANEL: Upload ─── -->
+    <aside class="panel panel--upload" aria-label="Document Upload">
+
+      <section class="card upload-card" id="upload-section">
+        <div class="card-header">
+          <span class="card-icon">📄</span>
+          <h2 class="card-title">Upload Document</h2>
+        </div>
+
+        <!-- Drag-and-drop zone -->
+        <div
+          id="drop-zone"
+          class="drop-zone"
+          role="button"
+          tabindex="0"
+          aria-label="Drag and drop a chemistry PDF or click to browse"
+          aria-describedby="drop-hint"
+        >
+          <div class="drop-zone__icon" aria-hidden="true">📂</div>
+          <p class="drop-zone__label">Drag & drop your PDF</p>
+          <p class="drop-zone__hint" id="drop-hint">or <span class="link-style">click to browse</span></p>
+          <input type="file" id="file-input" accept=".pdf,application/pdf" hidden aria-hidden="true" />
+        </div>
+
+        <!-- File preview -->
+        <div id="file-preview" class="file-preview hidden" aria-live="polite">
+          <div class="file-preview__icon" aria-hidden="true">📋</div>
+          <div class="file-preview__info">
+            <span id="file-name" class="file-preview__name"></span>
+            <span id="file-size" class="file-preview__size"></span>
+          </div>
+          <button id="clear-file-btn" class="icon-btn" aria-label="Remove selected file" title="Remove">✕</button>
+        </div>
+
+        <!-- Upload button -->
+        <button
+          id="upload-btn"
+          class="btn btn--primary btn--full"
+          disabled
+          aria-disabled="true"
+        >
+          <span class="btn-icon" aria-hidden="true">🚀</span>
+          Upload & Index
+        </button>
+
+        <!-- Upload progress / result -->
+        <div id="upload-status" class="status-area hidden" aria-live="polite" role="status"></div>
+      </section>
+
+      <!-- Session Info card -->
+      <section class="card session-card hidden" id="session-card" aria-label="Session Information">
+        <div class="card-header">
+          <span class="card-icon">✅</span>
+          <h2 class="card-title">Session Active</h2>
+        </div>
+        <dl class="stat-grid">
+          <dt>File</dt>       <dd id="stat-file">—</dd>
+          <dt>Pages</dt>      <dd id="stat-pages">—</dd>
+          <dt>Chunks</dt>     <dd id="stat-chunks">—</dd>
+          <dt>Session&nbsp;ID</dt> <dd id="stat-session" class="mono truncate">—</dd>
+        </dl>
+      </section>
+
+    </aside>
+
+    <!-- ─── RIGHT PANEL: Chat ─── -->
+    <section class="panel panel--chat" aria-label="Question and Answer">
+
+      <!-- Empty state -->
+      <div id="empty-state" class="empty-state" aria-hidden="false">
+        <div class="empty-state__icon" aria-hidden="true">🧪</div>
+        <h2 class="empty-state__title">Ready to Learn?</h2>
+        <p class="empty-state__body">
+          Upload a chemistry PDF on the left, then ask any question about it.<br />
+          All answers are grounded strictly in your document.
+        </p>
+      </div>
+
+      <!-- Chat messages container -->
+      <div
+        id="chat-container"
+        class="chat-container hidden"
+        role="log"
+        aria-label="Conversation"
+        aria-live="polite"
+      ></div>
+
+      <!-- Input bar -->
+      <div class="input-bar" id="input-bar">
+        <textarea
+          id="question-input"
+          class="question-input"
+          placeholder="Ask a chemistry question… (e.g. What is Le Chatelier's principle?)"
+          rows="1"
+          maxlength="1000"
+          aria-label="Chemistry question input"
+          disabled
+        ></textarea>
+        <button
+          id="ask-btn"
+          class="btn btn--send"
+          disabled
+          aria-label="Send question"
+          title="Send"
+        >
+          <span aria-hidden="true">➤</span>
+        </button>
+      </div>
+      <p class="input-hint">Answers are sourced exclusively from your uploaded document.</p>
+
+    </section>
+  </main>
+
+  <!-- ═══════════════════════ CONTEXT DRAWER ═══════════════════════ -->
+  <aside
+    id="context-drawer"
+    class="context-drawer hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Retrieved Context"
+  >
+    <div class="drawer-header">
+      <h3 class="drawer-title">📖 Retrieved Context</h3>
+      <button id="close-drawer-btn" class="icon-btn" aria-label="Close context drawer">✕</button>
+    </div>
+    <div id="drawer-content" class="drawer-content"></div>
+  </aside>
+  <div id="drawer-overlay" class="drawer-overlay hidden" role="presentation"></div>
+
+  <!-- ═══════════════════════ TOAST CONTAINER ═══════════════════════ -->
+  <div id="toast-container" class="toast-container" aria-live="assertive" aria-atomic="true"></div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>

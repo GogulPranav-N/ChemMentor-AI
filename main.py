@@ -1,0 +1,183 @@
+"""
+Chemistry AI Tutor — FastAPI Application Entry Point.
+
+Bootstraps the application using FastAPI's lifespan context manager to:
+- Load the singleton embedding model at startup (prevents cold-start on first request)
+- Initialise the Gemini LLM client
+- Mount static files and Jinja2 templates
+- Register all API routers
+- Configure CORS, global exception handling, and structured logging
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, AsyncGenerator
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from app.api.ask import router as ask_router
+from app.api.health import router as health_router
+from app.api.upload import router as upload_router
+from app.models.schemas import ErrorResponse
+from app.rag.embeddings import EmbeddingService
+from app.rag.llm import GeminiLLMClient
+from app.rag.retriever import ContextRetriever
+from app.utils.helpers import ensure_dirs, setup_logger
+
+# ── Environment ───────────────────────────────────────────────────────────────
+
+load_dotenv()  # load from .env if present
+
+# ── Logger ────────────────────────────────────────────────────────────────────
+
+logger = setup_logger("main", level=os.getenv("LOG_LEVEL", "INFO"))
+
+# ── App-level shared state ────────────────────────────────────────────────────
+# Stored here (rather than FastAPI.state) so API modules can import it directly
+# without circular dependency issues.
+
+app_state: dict[str, Any] = {}
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """
+    FastAPI lifespan context manager — runs setup on startup and teardown on shutdown.
+
+    Loading the embedding model here (rather than lazily) ensures the first
+    request is never penalised by model load time.
+    """
+    logger.info("═" * 60)
+    logger.info("  Chemistry AI Tutor — starting up")
+    logger.info("═" * 60)
+
+    # Required directories
+    upload_dir = os.getenv("UPLOAD_DIR", "uploads")
+    vector_db_dir = os.getenv("VECTOR_DB_DIR", "vector_db")
+    ensure_dirs(upload_dir, vector_db_dir, "source")
+    app_state["upload_dir"] = upload_dir
+
+    # Embedding model (singleton — loaded once, shared forever)
+    embedding_model = os.getenv("EMBEDDING_MODEL", "BAAI/bge-base-en-v1.5")
+    logger.info("Loading embedding model: %s", embedding_model)
+    EmbeddingService.get_instance(model_name=embedding_model)
+
+    # Retriever (orchestrates parse → chunk → embed → FAISS)
+    app_state["retriever"] = ContextRetriever(
+        chunk_size=int(os.getenv("CHUNK_SIZE", "700")),
+        chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "100")),
+        top_k=int(os.getenv("TOP_K", "5")),
+        vector_db_dir=vector_db_dir,
+        embedding_model=embedding_model,
+    )
+
+    # Gemini LLM client
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    app_state["llm_client"] = GeminiLLMClient(
+        api_key=api_key,
+        model_name=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+        max_output_tokens=int(os.getenv("GEMINI_MAX_TOKENS", "1024")),
+    )
+    app_state["active_session_id"] = None
+
+    logger.info("All services initialised. Application ready.")
+    logger.info("═" * 60)
+
+    yield  # ← application runs here
+
+    # Graceful shutdown
+    logger.info("Chemistry AI Tutor shutting down.")
+    app_state.clear()
+
+
+# ── FastAPI application ────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="Chemistry AI Tutor",
+    description=(
+        "A production-quality RAG application that answers chemistry questions "
+        "strictly from an uploaded PDF textbook chapter using Google Gemini."
+    ),
+    version=os.getenv("APP_VERSION", "1.0.0"),
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
+
+# ── Middleware ────────────────────────────────────────────────────────────────
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # tighten this in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Global exception handler ──────────────────────────────────────────────────
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all handler — prevents raw stack traces leaking to clients."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=ErrorResponse(
+            error="Internal Server Error",
+            detail="An unexpected error occurred. Please try again.",
+            status_code=500,
+        ).model_dump(),
+    )
+
+
+# ── Static files & templates ──────────────────────────────────────────────────
+
+_BASE = Path(__file__).parent
+
+app.mount(
+    "/static",
+    StaticFiles(directory=str(_BASE / "app" / "static")),
+    name="static",
+)
+
+templates = Jinja2Templates(directory=str(_BASE / "app" / "templates"))
+
+
+@app.get("/", include_in_schema=False)
+async def serve_ui(request: Request):
+    """Serve the single-page UI."""
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+# ── API Routers ───────────────────────────────────────────────────────────────
+
+app.include_router(health_router)
+app.include_router(upload_router)
+app.include_router(ask_router)
+
+
+# ── Dev entrypoint ────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level=os.getenv("LOG_LEVEL", "info").lower(),
+    )
