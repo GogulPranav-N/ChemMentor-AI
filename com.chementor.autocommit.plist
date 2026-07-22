@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Unique label for this launchd job -->
+  <key>Label</key>
+  <string>com.chementor.autocommit</string>
+
+  <!-- Command to run -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/gogulpranav/Documents/Projects/Che-Mentor/auto_commit.sh</string>
+  </array>
+
+  <!-- Run every 1800 seconds (30 minutes) -->
+  <key>StartInterval</key>
+  <integer>1800</integer>
+
+  <!-- Log output -->
+  <key>StandardOutPath</key>
+  <string>/Users/gogulpranav/Documents/Projects/Che-Mentor/auto_commit.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/gogulpranav/Documents/Projects/Che-Mentor/auto_commit.log</string>
+
+  <!-- Run even if missed (after sleep/wake) -->
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
