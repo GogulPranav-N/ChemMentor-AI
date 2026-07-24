@@ -128,30 +128,79 @@ class GeminiLLMClient:
 
         Falls back gracefully if the response is malformed.
         """
+        raw_clean = raw.strip()
+        if not raw_clean:
+            return LLMResponse(answer=_FALLBACK_ANSWER, related_topics=[])
+
+        # Strip potential markdown fences
+        clean = re.sub(r"```(?:json)?|```", "", raw_clean).strip()
+
+        # Try 1: Direct JSON load
         try:
-            # Strip potential markdown fences Gemini occasionally adds
-            clean = re.sub(r"```(?:json)?|```", "", raw).strip()
             data = json.loads(clean)
+            return self._build_response_from_dict(data, raw)
+        except Exception:
+            pass
 
-            answer = data.get("answer", "").strip() or _FALLBACK_ANSWER
-            topics = data.get("related_topics", [])
+        # Try 2: Extract JSON object block using regex
+        try:
+            match = re.search(r"(\{.*\})", clean, re.DOTALL)
+            if match:
+                data = json.loads(match.group(1))
+                return self._build_response_from_dict(data, raw)
+        except Exception:
+            pass
 
-            # Ensure topics is a list of strings
-            if not isinstance(topics, list):
-                topics = []
-            topics = [str(t).strip() for t in topics if str(t).strip()][:4]
+        # Try 3: Regex match for "answer" and "related_topics" key values
+        # This handles partially broken JSON or truncation
+        try:
+            answer_match = re.search(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)"', clean)
+            answer = ""
+            if answer_match:
+                # Decode escaped unicode/characters in the matched regex group
+                answer = json.loads(f'"{answer_match.group(1)}"')
+            
+            topics = []
+            topics_match = re.search(r'"related_topics"\s*:\s*\[(.*?)\]', clean, re.DOTALL)
+            if topics_match:
+                # Extract strings inside the bracket
+                items = re.findall(r'"((?:[^"\\]|\\.)*)"', topics_match.group(1))
+                topics = [str(item).strip() for item in items]
 
+            if answer:
+                return LLMResponse(
+                    answer=answer.strip(),
+                    related_topics=topics[:4],
+                    raw_response=raw,
+                )
+        except Exception:
+            pass
+
+        # Try 4: Check if the raw text is just plain text (doesn't look like JSON at all)
+        # If it doesn't contain '{' or '}' or '"answer"', it's likely a direct plain-text response
+        if "{" not in clean and "}" not in clean and '"answer"' not in clean:
             return LLMResponse(
-                answer=answer,
-                related_topics=topics,
-                raw_response=raw,
-            )
-
-        except (json.JSONDecodeError, AttributeError) as exc:
-            logger.warning("Failed to parse Gemini JSON response: %s", exc)
-            # Return the raw text as the answer rather than losing it
-            return LLMResponse(
-                answer=raw.strip() if raw.strip() else _FALLBACK_ANSWER,
+                answer=clean,
                 related_topics=[],
                 raw_response=raw,
             )
+
+        # Fallback: return the clean string but log warning
+        logger.warning("Failed to parse Gemini JSON structure. Raw response: %s", raw)
+        return LLMResponse(
+            answer=clean,
+            related_topics=[],
+            raw_response=raw,
+        )
+
+    def _build_response_from_dict(self, data: dict, raw: str) -> LLMResponse:
+        answer = data.get("answer", "").strip() or _FALLBACK_ANSWER
+        topics = data.get("related_topics", [])
+        if not isinstance(topics, list):
+            topics = []
+        topics = [str(t).strip() for t in topics if str(t).strip()][:4]
+        return LLMResponse(
+            answer=answer,
+            related_topics=topics,
+            raw_response=raw,
+        )
