@@ -101,7 +101,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app_state["llm_client"] = GeminiLLMClient(
             api_key=api_key,
             model_name=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
-            max_output_tokens=int(os.getenv("GEMINI_MAX_TOKENS", "1024")),
+            max_output_tokens=None,  # Do not set output token limit to avoid truncation bugs in current API
         )
     app_state["active_session_id"] = None
 

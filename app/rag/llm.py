@@ -58,7 +58,7 @@ class GeminiLLMClient:
         self,
         api_key: str,
         model_name: str = "gemini-1.5-flash",
-        max_output_tokens: int = 1024,
+        max_output_tokens: int | None = None,
         temperature: float = 0.2,
     ) -> None:
         if not api_key:
@@ -69,11 +69,14 @@ class GeminiLLMClient:
         genai.configure(api_key=api_key)
         self._model_name = model_name
 
-        generation_config = genai.GenerationConfig(
-            max_output_tokens=max_output_tokens,
-            temperature=temperature,          # low temp = less creative = less hallucination
-            response_mime_type="application/json",  # ask Gemini to return JSON
-        )
+        config_kwargs = {
+            "temperature": temperature,
+            "response_mime_type": "application/json",
+        }
+        if max_output_tokens is not None:
+            config_kwargs["max_output_tokens"] = max_output_tokens
+
+        generation_config = genai.GenerationConfig(**config_kwargs)
 
         self._model = genai.GenerativeModel(
             model_name=model_name,
@@ -82,6 +85,10 @@ class GeminiLLMClient:
         logger.info("Gemini client initialised. Model: %s", model_name)
 
     # ── Public API ────────────────────────────────────────────────────────────
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
 
     def generate(self, prompt: str) -> LLMResponse:
         """
@@ -97,10 +104,6 @@ class GeminiLLMClient:
         """
         raw = self._call_gemini(prompt)
         return self._parse_response(raw)
-
-    @property
-    def model_name(self) -> str:
-        return self._model_name
 
     # ── Private methods ───────────────────────────────────────────────────────
 
@@ -157,19 +160,20 @@ class GeminiLLMClient:
             answer_match = re.search(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)"', clean)
             answer = ""
             if answer_match:
-                # Decode escaped unicode/characters in the matched regex group
                 answer = json.loads(f'"{answer_match.group(1)}"')
-            
+            else:
+                # Truncation fallback: extract the partial string when closing quote is missing
+                answer = self._extract_incomplete_json_answer(clean)
+
             topics = []
             topics_match = re.search(r'"related_topics"\s*:\s*\[(.*?)\]', clean, re.DOTALL)
             if topics_match:
-                # Extract strings inside the bracket
                 items = re.findall(r'"((?:[^"\\]|\\.)*)"', topics_match.group(1))
                 topics = [str(item).strip() for item in items]
 
             if answer:
                 return LLMResponse(
-                    answer=answer.strip(),
+                    answer=answer,
                     related_topics=topics[:4],
                     raw_response=raw,
                 )
@@ -177,7 +181,6 @@ class GeminiLLMClient:
             pass
 
         # Try 4: Check if the raw text is just plain text (doesn't look like JSON at all)
-        # If it doesn't contain '{' or '}' or '"answer"', it's likely a direct plain-text response
         if "{" not in clean and "}" not in clean and '"answer"' not in clean:
             return LLMResponse(
                 answer=clean,
@@ -204,3 +207,40 @@ class GeminiLLMClient:
             related_topics=topics,
             raw_response=raw,
         )
+
+    @staticmethod
+    def _extract_incomplete_json_answer(clean_text: str) -> str:
+        """
+        Robustly extracts an answer from an incomplete, malformed, or truncated JSON.
+        Handles cases where the string ends before the closing double quote.
+        """
+        match = re.search(r'"answer"\s*:\s*"', clean_text)
+        if not match:
+            return ""
+
+        start_idx = match.end()
+        result = []
+        escaped = False
+
+        for i in range(start_idx, len(clean_text)):
+            char = clean_text[i]
+            if escaped:
+                # Handle common escapes
+                if char == 'n':
+                    result.append('\n')
+                elif char == 't':
+                    result.append('\t')
+                elif char == 'r':
+                    result.append('\r')
+                else:
+                    result.append(char)
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == '"':
+                # Reached actual closing quote
+                break
+            else:
+                result.append(char)
+
+        return "".join(result).strip()
