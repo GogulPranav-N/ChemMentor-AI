@@ -115,14 +115,14 @@ function handleFileSelected(file) {
   dom.uploadBtn().removeAttribute('aria-disabled');
 }
 
-function clearFile() {
+function clearFile(keepStatus = false) {
   state.selectedFile = null;
   dom.fileInput().value = '';
   dom.filePreview().classList.add('hidden');
   dom.dropZone().classList.remove('hidden');
   dom.uploadBtn().disabled = true;
   dom.uploadBtn().setAttribute('aria-disabled', 'true');
-  hideStatus();
+  if (!keepStatus) hideStatus();
 }
 
 // ══════════════════════════════════════════════════════
@@ -139,6 +139,12 @@ async function handleUpload() {
 
   const formData = new FormData();
   formData.append('file', state.selectedFile);
+
+  // Send session_id if appending is checked
+  const appendCheckbox = document.getElementById('append-checkbox');
+  if (state.sessionId && appendCheckbox && appendCheckbox.checked) {
+    formData.append('session_id', state.sessionId);
+  }
 
   try {
     const res = await fetch('/upload', { method: 'POST', body: formData });
@@ -158,6 +164,10 @@ async function handleUpload() {
     dom.statSession().title       = data.session_id;
     dom.sessionCard().classList.remove('hidden');
 
+    // Show append checkbox option now that a session is active
+    const appendOption = document.getElementById('append-option-container');
+    if (appendOption) appendOption.classList.remove('hidden');
+
     setStatus('success', `✅ ${data.message} — ${data.chunk_count} chunks indexed across ${data.page_count} pages.`);
     setIndicator('ready');
     showToast('Document indexed! You can now ask questions.', 'success');
@@ -169,6 +179,9 @@ async function handleUpload() {
     // Show chat, hide empty state
     dom.emptyState().classList.add('hidden');
     dom.chatContainer().classList.remove('hidden');
+
+    // Clear file selection but keep success message status
+    clearFile(true);
 
   } catch (err) {
     setStatus('error', `❌ ${err.message}`);
@@ -484,6 +497,21 @@ function initKeyboardShortcuts() {
   });
 }
 
+function resetSession() {
+  state.sessionId = null;
+  state.conversation = [];
+  dom.sessionCard().classList.add('hidden');
+  const appendOption = document.getElementById('append-option-container');
+  if (appendOption) appendOption.classList.add('hidden');
+  dom.chatContainer().innerHTML = '';
+  dom.chatContainer().classList.add('hidden');
+  dom.emptyState().classList.remove('hidden');
+  dom.questionInput().disabled = true;
+  dom.askBtn().disabled = true;
+  clearFile();
+  showToast('Session cleared. Start fresh by uploading a new PDF.', 'info');
+}
+
 // ══════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════
@@ -496,6 +524,11 @@ function init() {
   dom.askBtn().addEventListener('click', handleAsk);
   dom.closeDrawerBtn().addEventListener('click', closeDrawer);
   dom.drawerOverlay().addEventListener('click', closeDrawer);
+
+  const resetBtn = document.getElementById('reset-session-btn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', resetSession);
+  }
 
   dom.questionInput().addEventListener('input', function () {
     autoResizeTextarea(this);

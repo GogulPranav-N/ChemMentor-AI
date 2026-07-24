@@ -61,14 +61,14 @@ class ContextRetriever:
 
     def ingest(self, pdf_path: str | Path, session_id: str) -> dict:
         """
-        Parse the PDF, chunk it, embed chunks, and build the FAISS index.
+        Parse the PDF, chunk it, embed chunks, and build/append to the FAISS index.
 
         Args:
             pdf_path:   Path to the uploaded PDF file.
             session_id: Unique identifier for this upload session.
 
         Returns:
-            Dict with keys: page_count, chunk_count, session_id.
+            Dict with keys: page_count, chunk_count, session_id, file_names, file_name.
         """
         pdf_path = Path(pdf_path)
         logger.info(
@@ -88,23 +88,40 @@ class ContextRetriever:
         )
         chunks: List[Document] = chunker.chunk(pages)
 
-        # 3+4 — Embed and index
+        # Check if index already exists to determine if we are appending
+        is_append = self.session_exists(session_id)
+
+        # 3+4 — Embed and index (append if session exists)
         vector_count = self._vector_store.build(
             documents=chunks,
             session_id=session_id,
+            append=is_append,
         )
+
+        # Update metadata
+        existing_meta = self.get_session_meta(session_id)
+        if existing_meta:
+            new_page_count = existing_meta.get("page_count", 0) + len(pages)
+            existing_files = existing_meta.get("file_names", [])
+            new_files = existing_files + [pdf_path.name] if pdf_path.name not in existing_files else existing_files
+        else:
+            new_page_count = len(pages)
+            new_files = [pdf_path.name]
 
         meta = {
             "session_id": session_id,
-            "page_count": len(pages),
+            "page_count": new_page_count,
             "chunk_count": vector_count,
+            "file_names": new_files,
+            "file_name": ", ".join(new_files)
         }
         self._session_meta[session_id] = meta
 
         logger.info(
-            "Ingestion complete for session '%s'. Pages: %d, Chunks: %d.",
+            "Ingestion complete for session '%s'. Files: %s, Pages: %d, Chunks: %d.",
             session_id,
-            len(pages),
+            ", ".join(new_files),
+            new_page_count,
             vector_count,
         )
         return meta
@@ -149,5 +166,10 @@ class ContextRetriever:
         return self._vector_store.exists(session_id)
 
     def get_session_meta(self, session_id: str) -> dict:
-        """Return cached metadata for a session, or empty dict if not found."""
-        return self._session_meta.get(session_id, {})
+        """Return cached metadata, or load/reconstruct it from the FAISS store index."""
+        if session_id not in self._session_meta:
+            if self.session_exists(session_id):
+                self._session_meta[session_id] = self._vector_store.get_index_metadata(session_id)
+            else:
+                return {}
+        return self._session_meta[session_id]

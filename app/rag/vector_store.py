@@ -52,13 +52,14 @@ class VectorStoreManager:
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
-    def build(self, documents: List[Document], session_id: str) -> int:
+    def build(self, documents: List[Document], session_id: str, append: bool = False) -> int:
         """
-        Create a FAISS index from a list of Documents and persist it to disk.
+        Create or append to a FAISS index from a list of Documents and persist it to disk.
 
         Args:
             documents:  Chunked LangChain Documents with metadata.
             session_id: Unique identifier for this upload session.
+            append:     If True and the index exists, append documents instead of overwriting.
 
         Returns:
             Number of vectors stored in the index.
@@ -66,19 +67,28 @@ class VectorStoreManager:
         if not documents:
             raise ValueError("Cannot build a FAISS index with zero documents.")
 
-        logger.info(
-            "Building FAISS index for session '%s' with %d chunks.",
-            session_id,
-            len(documents),
-        )
+        save_path = self._session_path(session_id)
 
-        store = FAISS.from_documents(
-            documents=documents,
-            embedding=self._embedding_service.embeddings,
-        )
+        if append and self.exists(session_id):
+            logger.info(
+                "Loading existing FAISS index for session '%s' to append %d chunks.",
+                session_id,
+                len(documents),
+            )
+            store = self.load(session_id)
+            store.add_documents(documents)
+        else:
+            logger.info(
+                "Building new FAISS index for session '%s' with %d chunks.",
+                session_id,
+                len(documents),
+            )
+            store = FAISS.from_documents(
+                documents=documents,
+                embedding=self._embedding_service.embeddings,
+            )
 
         # Persist to <vector_db_dir>/<session_id>/
-        save_path = self._session_path(session_id)
         save_path.mkdir(parents=True, exist_ok=True)
         store.save_local(str(save_path))
 
@@ -87,7 +97,7 @@ class VectorStoreManager:
 
         vector_count = store.index.ntotal
         logger.info(
-            "FAISS index saved to '%s'. Vectors stored: %d.",
+            "FAISS index saved to '%s'. Total vectors stored: %d.",
             save_path,
             vector_count,
         )
@@ -176,6 +186,42 @@ class VectorStoreManager:
             return store.index.ntotal
         except FileNotFoundError:
             return 0
+
+    def get_index_metadata(self, session_id: str) -> dict:
+        """Inspect the FAISS index docstore to extract total pages and unique files."""
+        try:
+            store = self.load(session_id)
+            docs = list(store.docstore._dict.values())
+
+            file_names = sorted(list(set(doc.metadata.get("source_file", "unknown") for doc in docs)))
+
+            # Group pages by file to get accurate counts
+            pages_by_file = {}
+            for doc in docs:
+                file_name = doc.metadata.get("source_file", "unknown")
+                page = doc.metadata.get("page", 0)
+                if file_name not in pages_by_file:
+                    pages_by_file[file_name] = set()
+                pages_by_file[file_name].add(page)
+
+            total_pages = sum(len(pages) for pages in pages_by_file.values())
+
+            return {
+                "session_id": session_id,
+                "page_count": total_pages,
+                "chunk_count": store.index.ntotal,
+                "file_names": file_names,
+                "file_name": ", ".join(file_names)
+            }
+        except Exception as e:
+            logger.error("Error reading index metadata for session '%s': %s", session_id, e)
+            return {
+                "session_id": session_id,
+                "page_count": 0,
+                "chunk_count": 0,
+                "file_names": [],
+                "file_name": "unknown"
+            }
 
     # ── Private helpers ───────────────────────────────────────────────────────
 

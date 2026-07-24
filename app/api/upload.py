@@ -11,7 +11,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from typing import Optional
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
 from app.models.schemas import UploadResponse
 from app.utils.helpers import (
@@ -41,6 +42,7 @@ _MAX_FILE_SIZE_BYTES = _MAX_FILE_SIZE_MB * 1024 * 1024
 )
 async def upload_pdf(
     file: UploadFile = File(..., description="Chemistry PDF file to index."),
+    session_id: Optional[str] = Form(None, description="Existing session ID to append this PDF to."),
 ) -> UploadResponse:
     """
     Full ingestion pipeline in one request:
@@ -71,7 +73,7 @@ async def upload_pdf(
 
     # ── Persist ───────────────────────────────────────────────────────────────
 
-    session_id = generate_session_id()
+    session_id = session_id or generate_session_id()
     safe_name = sanitize_filename(file.filename or "document.pdf")
     upload_dir = Path(app_state.get("upload_dir", "uploads"))
     upload_dir.mkdir(parents=True, exist_ok=True)

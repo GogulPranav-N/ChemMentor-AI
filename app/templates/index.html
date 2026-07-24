@@ -85,18 +85,29 @@
           Upload & Index
         </button>
 
+        <!-- Append to session option -->
+        <div id="append-option-container" class="append-option-container hidden" style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+          <input type="checkbox" id="append-checkbox" checked style="width: 16px; height: 16px; cursor: pointer;" />
+          <label for="append-checkbox" style="font-size: 0.8rem; color: var(--clr-text-muted); cursor: pointer; user-select: none;">
+            Add to current session (multi-file search)
+          </label>
+        </div>
+
         <!-- Upload progress / result -->
         <div id="upload-status" class="status-area hidden" aria-live="polite" role="status"></div>
       </section>
 
       <!-- Session Info card -->
       <section class="card session-card hidden" id="session-card" aria-label="Session Information">
-        <div class="card-header">
-          <span class="card-icon">✅</span>
-          <h2 class="card-title">Session Active</h2>
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 0.625rem;">
+            <span class="card-icon">✅</span>
+            <h2 class="card-title">Session Active</h2>
+          </div>
+          <button id="reset-session-btn" class="icon-btn" style="font-size: 0.75rem; padding: 2px 6px; border: 1px solid var(--clr-border); border-radius: var(--radius-sm);" title="Reset current session and start fresh">Clear Session</button>
         </div>
         <dl class="stat-grid">
-          <dt>File</dt>       <dd id="stat-file">—</dd>
+          <dt>File(s)</dt>     <dd id="stat-file" style="word-break: break-all;">—</dd>
           <dt>Pages</dt>      <dd id="stat-pages">—</dd>
           <dt>Chunks</dt>     <dd id="stat-chunks">—</dd>
           <dt>Session&nbsp;ID</dt> <dd id="stat-session" class="mono truncate">—</dd>
