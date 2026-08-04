@@ -231,7 +231,7 @@ async function handleAsk() {
 
     removeSkeleton(skeletonId);
     state.lastSources = data.sources || [];
-    appendAssistantMessage(data.answer, data.sources || [], data.related_topics || []);
+    appendAssistantMessage(data.answer, data.sources || [], data.related_topics || [], data.equations || []);
     setIndicator('ready');
 
   } catch (err) {
@@ -284,7 +284,14 @@ function removeSkeleton(id) {
  * @param {Array} sources
  * @param {Array<string>} topics
  */
-function appendAssistantMessage(answer, sources, topics) {
+/**
+ * Render the assistant's answer with source chips, equation cards, and related topic chips.
+ * @param {string} answer
+ * @param {Array} sources
+ * @param {Array<string>} topics
+ * @param {Array<{equation:string, label:string}>} equations
+ */
+function appendAssistantMessage(answer, sources, topics, equations = []) {
   const isFallback = answer.toLowerCase().includes('not present in the provided chapter');
 
   const div = document.createElement('div');
@@ -294,6 +301,31 @@ function appendAssistantMessage(answer, sources, topics) {
   const bubble = document.createElement('div');
   bubble.className = 'message__bubble';
   bubble.innerHTML = formatAnswer(answer);
+
+  // ── Equation cards
+  let equationsHtml = '';
+  if (equations.length > 0 && !isFallback) {
+    const cards = equations.map((eq, i) => {
+      const rendered = renderChemEquation(eq.equation);
+      const labelHtml = eq.label ? `<span class="equation-card__label">${escapeHtml(eq.label)}</span>` : '';
+      return `
+        <div class="equation-card" data-eq-index="${i}">
+          <div class="equation-card__formula">${rendered}</div>
+          <div class="equation-card__footer">
+            ${labelHtml}
+            <button class="equation-card__copy" title="Copy equation" aria-label="Copy equation">
+              <span class="copy-icon">📋</span>
+              <span class="copy-done hidden">✓</span>
+            </button>
+          </div>
+        </div>`;
+    }).join('');
+    equationsHtml = `
+      <div class="equations-section">
+        <p class="chips-label">⚗️ Key Equations</p>
+        <div class="equations-grid">${cards}</div>
+      </div>`;
+  }
 
   // ── Source chips
   let sourcesHtml = '';
@@ -324,7 +356,7 @@ function appendAssistantMessage(answer, sources, topics) {
   }
 
   div.appendChild(bubble);
-  div.innerHTML += sourcesHtml + topicsHtml;
+  div.innerHTML += equationsHtml + sourcesHtml + topicsHtml;
 
   dom.chatContainer().appendChild(div);
 
@@ -333,6 +365,17 @@ function appendAssistantMessage(answer, sources, topics) {
     btn.addEventListener('click', () => {
       const idx = parseInt(btn.dataset.index, 10);
       openDrawer(sources, idx);
+    });
+  });
+
+  // Attach copy handlers for equation cards
+  div.querySelectorAll('.equation-card__copy').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const card = btn.closest('.equation-card');
+      const idx = parseInt(card.dataset.eqIndex, 10);
+      const eqText = equations[idx]?.equation || '';
+      copyEquationToClipboard(eqText, btn);
     });
   });
 
@@ -470,14 +513,114 @@ function escapeHtml(str) {
 }
 
 /**
+ * Renders a chemistry equation string via KaTeX.
+ * Converts chemistry-style notation to LaTeX-compatible format.
+ * @param {string} eq - The equation string (e.g. "2H_{2} + O_{2} → 2H_{2}O")
+ * @returns {string} HTML string with rendered equation
+ */
+function renderChemEquation(eq) {
+  try {
+    // Convert chemistry arrows to LaTeX commands
+    let latex = eq
+      .replace(/⇌/g, '\\rightleftharpoons ')
+      .replace(/⟶/g, '\\longrightarrow ')
+      .replace(/→/g, '\\rightarrow ')
+      .replace(/←/g, '\\leftarrow ')
+      .replace(/Δ/g, '\\Delta ');
+
+    // Wrap in \text{} for proper chemistry-style upright text rendering
+    // But preserve _{} and ^{} as math mode
+    // Use \mathrm for chemistry (upright letters)
+    latex = '\\mathrm{' + latex + '}';
+
+    if (typeof katex !== 'undefined') {
+      return katex.renderToString(latex, {
+        throwOnError: false,
+        displayMode: true,
+        trust: true,
+      });
+    }
+  } catch (e) {
+    // KaTeX failed — fall back to styled HTML
+  }
+  return renderChemEquationFallback(eq);
+}
+
+/**
+ * Fallback renderer when KaTeX is unavailable.
+ * Converts _{} to <sub> and ^{} to <sup> tags.
+ */
+function renderChemEquationFallback(eq) {
+  return escapeHtml(eq)
+    .replace(/_{([^}]+)}/g, '<sub>$1</sub>')
+    .replace(/\^{([^}]+)}/g, '<sup>$1</sup>')
+    .replace(/→/g, '<span class="chem-arrow">→</span>')
+    .replace(/⇌/g, '<span class="chem-arrow">⇌</span>')
+    .replace(/⟶/g, '<span class="chem-arrow">⟶</span>');
+}
+
+/**
+ * Copy equation text to clipboard and show feedback.
+ */
+function copyEquationToClipboard(text, btn) {
+  // Convert _{} and ^{} to Unicode subscripts/superscripts for readable clipboard
+  const readable = text
+    .replace(/_{([^}]+)}/g, (_, s) => subscriptify(s))
+    .replace(/\^{([^}]+)}/g, (_, s) => superscriptify(s));
+
+  navigator.clipboard.writeText(readable).then(() => {
+    const icon = btn.querySelector('.copy-icon');
+    const done = btn.querySelector('.copy-done');
+    if (icon) icon.classList.add('hidden');
+    if (done) done.classList.remove('hidden');
+    setTimeout(() => {
+      if (icon) icon.classList.remove('hidden');
+      if (done) done.classList.add('hidden');
+    }, 1500);
+  }).catch(() => {
+    showToast('Failed to copy equation.', 'error');
+  });
+}
+
+/** Convert digit chars to Unicode subscript equivalents. */
+function subscriptify(s) {
+  const map = { '0':'₀','1':'₁','2':'₂','3':'₃','4':'₄','5':'₅','6':'₆','7':'₇','8':'₈','9':'₉','+':'₊','-':'₋','(':'₍',')':'₎' };
+  return s.split('').map(c => map[c] || c).join('');
+}
+
+/** Convert digit chars to Unicode superscript equivalents. */
+function superscriptify(s) {
+  const map = { '0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','+':'⁺','-':'⁻','(':'⁽',')':'⁾' };
+  return s.split('').map(c => map[c] || c).join('');
+}
+
+/**
  * Minimal markdown-like formatting for the answer text.
- * Converts **bold**, line breaks, and page citations.
+ * Converts **bold**, line breaks, page citations, and $$equation$$ blocks.
  */
 function formatAnswer(text) {
-  return escapeHtml(text)
+  let html = escapeHtml(text);
+
+  // Render $$...$$ equation blocks via KaTeX
+  html = html.replace(/\$\$([^$]+?)\$\$/g, (_, eq) => {
+    // Unescape HTML entities back for KaTeX processing
+    const raw = eq
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'");
+    const rendered = renderChemEquation(raw.trim());
+    return `<span class="chem-equation-inline">${rendered}</span>`;
+  });
+
+  // Standard formatting
+  html = html
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br />')
     .replace(/\(Page (\d+)\)/g, '<span style="color:var(--clr-primary-glow);font-weight:600">(Page $1)</span>');
+
+  return html;
 }
 
 // ══════════════════════════════════════════════════════

@@ -64,10 +64,21 @@ class SourceReference(BaseModel):
     score: float = Field(..., description="Cosine similarity score (0–1, higher is better).")
 
 
+class EquationItem(BaseModel):
+    """A single chemical equation with a descriptive label."""
+
+    equation: str = Field(..., description="The chemical equation string (e.g. '2H_{2} + O_{2} → 2H_{2}O').")
+    label: str = Field(default="", description="Short descriptive label for the equation.")
+
+
 class AskResponse(BaseModel):
     """Structured response from the /ask endpoint."""
 
     answer: str = Field(..., description="The generated answer, grounded strictly in context.")
+    equations: List[EquationItem] = Field(
+        default_factory=list,
+        description="Up to 6 key chemical equations/reactions from the answer.",
+    )
     sources: List[SourceReference] = Field(
         default_factory=list,
         description="Top-K retrieved chunks with page citations.",

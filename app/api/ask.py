@@ -121,6 +121,10 @@ async def ask_question(request: AskRequest) -> AskResponse:
 
     return AskResponse(
         answer=llm_response.answer,
+        equations=[
+            {"equation": eq.equation, "label": eq.label}
+            for eq in (llm_response.equations or [])
+        ],
         sources=sources,
         related_topics=llm_response.related_topics,
         session_id=request.session_id,

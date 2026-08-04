@@ -32,10 +32,18 @@ _FALLBACK_ANSWER = "The answer is not present in the provided chapter."
 
 
 @dataclass
+class EquationItem:
+    """A single chemical equation with a descriptive label."""
+    equation: str
+    label: str = ""
+
+
+@dataclass
 class LLMResponse:
     """Structured output from the Gemini LLM call."""
 
     answer: str
+    equations: List[EquationItem] = field(default_factory=list)
     related_topics: List[str] = field(default_factory=list)
     raw_response: str = field(default="", repr=False)
 
@@ -202,8 +210,21 @@ class GeminiLLMClient:
         if not isinstance(topics, list):
             topics = []
         topics = [str(t).strip() for t in topics if str(t).strip()][:4]
+
+        # Parse equations array
+        raw_equations = data.get("equations", [])
+        equations: list[EquationItem] = []
+        if isinstance(raw_equations, list):
+            for eq in raw_equations[:6]:
+                if isinstance(eq, dict) and eq.get("equation"):
+                    equations.append(EquationItem(
+                        equation=str(eq["equation"]).strip(),
+                        label=str(eq.get("label", "")).strip(),
+                    ))
+
         return LLMResponse(
             answer=answer,
+            equations=equations,
             related_topics=topics,
             raw_response=raw,
         )

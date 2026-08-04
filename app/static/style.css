@@ -720,6 +720,152 @@ body::before {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ══════════════════════ CHEMISTRY EQUATIONS ══════════════════════ */
+
+/* ── Equations section within chat messages ── */
+.equations-section {
+  margin-top: 0.75rem;
+  animation: slide-in-up var(--dur-mid) var(--ease-out) both;
+}
+
+.equations-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* ── Individual equation card ── */
+.equation-card {
+  background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.06) 100%);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: var(--radius-md);
+  padding: 0.875rem 1rem;
+  transition: all var(--dur-mid) var(--ease-out);
+  position: relative;
+  overflow: hidden;
+}
+
+.equation-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--clr-primary), var(--clr-accent), var(--clr-primary));
+  background-size: 200% 100%;
+  animation: equation-shimmer 3s ease infinite;
+  opacity: 0.6;
+}
+
+@keyframes equation-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.equation-card:hover {
+  border-color: rgba(99,102,241,0.4);
+  background: linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(139,92,246,0.1) 100%);
+  box-shadow: 0 0 20px rgba(99,102,241,0.15), inset 0 0 20px rgba(99,102,241,0.03);
+  transform: translateY(-1px);
+}
+
+/* ── Equation formula display ── */
+.equation-card__formula {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  color: var(--clr-text);
+  text-align: center;
+  padding: 0.375rem 0;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+/* ── Footer with label and copy button ── */
+.equation-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.375rem;
+  padding-top: 0.375rem;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.equation-card__label {
+  font-size: 0.75rem;
+  color: var(--clr-text-muted);
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
+
+.equation-card__copy {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-sm);
+  color: var(--clr-text-muted);
+  cursor: pointer;
+  padding: 3px 8px;
+  font-size: 0.8rem;
+  transition: all var(--dur-fast) ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.equation-card__copy:hover {
+  background: rgba(99,102,241,0.15);
+  border-color: rgba(99,102,241,0.3);
+  color: var(--clr-primary-glow);
+}
+
+.equation-card__copy .copy-done {
+  color: var(--clr-success);
+  font-weight: 600;
+}
+
+/* ── Inline equations within answer text ── */
+.chem-equation-inline {
+  display: inline-block;
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.15);
+  border-radius: var(--radius-sm);
+  padding: 0.125rem 0.5rem;
+  margin: 0.125rem 0.25rem;
+  vertical-align: middle;
+}
+
+.chem-equation-inline .katex {
+  font-size: 1rem;
+}
+
+/* ── Fallback HTML arrow styling ── */
+.chem-arrow {
+  color: var(--clr-accent-glow);
+  font-weight: 700;
+  font-size: 1.15em;
+  padding: 0 0.2em;
+}
+
+/* ── KaTeX dark theme overrides ── */
+.katex {
+  color: var(--clr-text) !important;
+  font-size: 1.15em;
+}
+
+.katex .katex-html {
+  color: var(--clr-text);
+}
+
+/* Make KaTeX display mode not take full width */
+.equation-card__formula .katex-display {
+  margin: 0;
+  padding: 0;
+}
+
+.equation-card__formula .katex-display > .katex {
+  text-align: center;
+}
+
 /* ══════════════════════ RESPONSIVE ══════════════════════ */
 @media (max-width: 900px) {
   :root { --sidebar-w: 280px; }
@@ -733,4 +879,8 @@ body::before {
   }
   .panel--chat { height: calc(100vh - var(--header-h) - 340px); min-height: 360px; }
   .header-badges .badge { display: none; }
+
+  .equation-card__formula {
+    font-size: 0.95rem;
+  }
 }
