@@ -18,10 +18,23 @@ class UploadResponse(BaseModel):
     """Returned after a successful PDF ingestion."""
 
     session_id: str = Field(..., description="Unique session identifier for this document.")
-    file_name: str = Field(..., description="Original name of the uploaded file.")
+    file_name: str = Field(..., description="Original name of the uploaded file (or comma-separated names).")
+    file_names: List[str] = Field(default_factory=list, description="List of all file names in this session.")
     page_count: int = Field(..., description="Total number of pages parsed.")
     chunk_count: int = Field(..., description="Total text chunks stored in FAISS.")
     message: str = Field(default="Document indexed successfully.")
+
+
+class MultiUploadResponse(BaseModel):
+    """Returned after a successful multi-file PDF ingestion."""
+
+    session_id: str = Field(..., description="Unique session identifier for this batch.")
+    file_names: List[str] = Field(..., description="Names of all uploaded files.")
+    total_files: int = Field(..., description="Number of files uploaded in this batch.")
+    page_count: int = Field(..., description="Total pages parsed across all files.")
+    chunk_count: int = Field(..., description="Total text chunks stored in FAISS.")
+    message: str = Field(default="All documents indexed successfully.")
+
 
 
 # ─── Ask ──────────────────────────────────────────────────────────────────────

@@ -4,7 +4,8 @@
  * Vanilla JS only. No external libraries.
  *
  * Responsibilities:
- *  - PDF drag-and-drop upload with progress feedback
+ *  - PDF drag-and-drop upload with multi-file support
+ *  - Sequential upload with per-file progress feedback
  *  - Chat-style Q&A interface with conversation history
  *  - Rendering answers, source chips, related topics
  *  - Context drawer (shows raw retrieved chunks)
@@ -20,7 +21,8 @@
 
 const state = {
   sessionId: null,
-  selectedFile: null,
+  /** @type {File[]} */
+  selectedFiles: [],
   isUploading: false,
   isAsking: false,
   /** @type {Array<{role:'user'|'assistant', content:string, sources:[], topics:[]}>} */
@@ -36,10 +38,11 @@ const state = {
 const dom = {
   dropZone:          () => document.getElementById('drop-zone'),
   fileInput:         () => document.getElementById('file-input'),
-  filePreview:       () => document.getElementById('file-preview'),
-  fileName:          () => document.getElementById('file-name'),
-  fileSize:          () => document.getElementById('file-size'),
-  clearFileBtn:      () => document.getElementById('clear-file-btn'),
+  fileListPreview:   () => document.getElementById('file-list-preview'),
+  fileList:          () => document.getElementById('file-list'),
+  fileCountBadge:    () => document.getElementById('file-count-badge'),
+  addMoreBtn:        () => document.getElementById('add-more-btn'),
+  clearAllBtn:       () => document.getElementById('clear-all-btn'),
   uploadBtn:         () => document.getElementById('upload-btn'),
   uploadStatus:      () => document.getElementById('upload-status'),
   sessionCard:       () => document.getElementById('session-card'),
@@ -60,7 +63,7 @@ const dom = {
 };
 
 // ══════════════════════════════════════════════════════
-// UPLOAD — DRAG & DROP
+// UPLOAD — DRAG & DROP (Multi-file)
 // ══════════════════════════════════════════════════════
 
 function initDropZone() {
@@ -84,93 +87,202 @@ function initDropZone() {
   zone.addEventListener('drop', (e) => {
     e.preventDefault();
     zone.classList.remove('drag-over');
-    const file = e.dataTransfer?.files?.[0];
-    if (file) handleFileSelected(file);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length > 0) handleFilesSelected(files);
   });
 
-  // File input change
+  // File input change (supports multiple)
   input.addEventListener('change', () => {
-    if (input.files?.[0]) handleFileSelected(input.files[0]);
+    const files = Array.from(input.files || []);
+    if (files.length > 0) handleFilesSelected(files);
   });
 
-  // Clear file
-  dom.clearFileBtn().addEventListener('click', clearFile);
+  // Add More button
+  dom.addMoreBtn().addEventListener('click', () => {
+    input.click();
+  });
+
+  // Clear All button
+  dom.clearAllBtn().addEventListener('click', clearFiles);
 }
 
-function handleFileSelected(file) {
-  if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
-    showToast('Please select a PDF file.', 'error');
-    return;
+/**
+ * Handle multiple files being selected.
+ * Validates each file and adds valid ones to the state.
+ * @param {File[]} files
+ */
+function handleFilesSelected(files) {
+  let added = 0;
+  for (const file of files) {
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      showToast(`"${file.name}" is not a PDF — skipped.`, 'error');
+      continue;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      showToast(`"${file.name}" exceeds the 50 MB limit — skipped.`, 'error');
+      continue;
+    }
+    // Avoid duplicate files by name
+    if (state.selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+      continue;
+    }
+    state.selectedFiles.push(file);
+    added++;
   }
-  if (file.size > 50 * 1024 * 1024) {
-    showToast('File exceeds the 50 MB limit.', 'error');
-    return;
-  }
-  state.selectedFile = file;
-  dom.fileName().textContent = file.name;
-  dom.fileSize().textContent = formatBytes(file.size);
-  dom.filePreview().classList.remove('hidden');
-  dom.dropZone().classList.add('hidden');
-  dom.uploadBtn().disabled = false;
-  dom.uploadBtn().removeAttribute('aria-disabled');
-}
 
-function clearFile(keepStatus = false) {
-  state.selectedFile = null;
+  if (added > 0) {
+    renderFileList();
+    dom.uploadBtn().disabled = false;
+    dom.uploadBtn().removeAttribute('aria-disabled');
+  }
+
+  // Reset the file input so re-selecting the same file works
   dom.fileInput().value = '';
-  dom.filePreview().classList.add('hidden');
-  dom.dropZone().classList.remove('hidden');
-  dom.uploadBtn().disabled = true;
-  dom.uploadBtn().setAttribute('aria-disabled', 'true');
+}
+
+/**
+ * Render the file list preview showing all selected files.
+ */
+function renderFileList() {
+  const list = dom.fileList();
+  const preview = dom.fileListPreview();
+  const badge = dom.fileCountBadge();
+
+  list.innerHTML = '';
+
+  if (state.selectedFiles.length === 0) {
+    preview.classList.add('hidden');
+    dom.dropZone().classList.remove('hidden');
+    dom.uploadBtn().disabled = true;
+    dom.uploadBtn().setAttribute('aria-disabled', 'true');
+    return;
+  }
+
+  dom.dropZone().classList.add('hidden');
+  preview.classList.remove('hidden');
+  badge.textContent = state.selectedFiles.length;
+
+  state.selectedFiles.forEach((file, idx) => {
+    const li = document.createElement('li');
+    li.className = 'file-list-item';
+    li.innerHTML = `
+      <span class="file-list-item__icon" aria-hidden="true">📄</span>
+      <div class="file-list-item__info">
+        <span class="file-list-item__name">${escapeHtml(file.name)}</span>
+        <span class="file-list-item__size">${formatBytes(file.size)}</span>
+      </div>
+      <button class="file-list-item__remove icon-btn" data-index="${idx}" aria-label="Remove ${escapeHtml(file.name)}" title="Remove">✕</button>
+    `;
+    list.appendChild(li);
+  });
+
+  // Attach remove handlers
+  list.querySelectorAll('.file-list-item__remove').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.index, 10);
+      state.selectedFiles.splice(idx, 1);
+      renderFileList();
+    });
+  });
+}
+
+/**
+ * Clear all selected files and reset the upload UI.
+ * @param {boolean} keepStatus - If true, don't hide the status message.
+ */
+function clearFiles(keepStatus = false) {
+  state.selectedFiles = [];
+  dom.fileInput().value = '';
+  renderFileList();
   if (!keepStatus) hideStatus();
 }
 
 // ══════════════════════════════════════════════════════
-// UPLOAD — API CALL
+// UPLOAD — API CALL (Sequential multi-file)
 // ══════════════════════════════════════════════════════
 
 async function handleUpload() {
-  if (!state.selectedFile || state.isUploading) return;
+  if (state.selectedFiles.length === 0 || state.isUploading) return;
 
   state.isUploading = true;
-  setStatus('loading', '<span class="spinner"></span> Uploading and indexing your document…');
+  const totalFiles = state.selectedFiles.length;
+  const isBatch = totalFiles > 1;
+
   setIndicator('loading');
   dom.uploadBtn().disabled = true;
 
-  const formData = new FormData();
-  formData.append('file', state.selectedFile);
-
-  // Send session_id if appending is checked
+  // Determine if we should append to an existing session
   const appendCheckbox = document.getElementById('append-checkbox');
-  if (state.sessionId && appendCheckbox && appendCheckbox.checked) {
-    formData.append('session_id', state.sessionId);
-  }
+  const shouldAppend = state.sessionId && appendCheckbox && appendCheckbox.checked;
+  let currentSessionId = shouldAppend ? state.sessionId : null;
+  let lastData = null;
 
   try {
-    const res = await fetch('/upload', { method: 'POST', body: formData });
-    const data = await res.json();
+    for (let i = 0; i < totalFiles; i++) {
+      const file = state.selectedFiles[i];
+      const progressLabel = isBatch
+        ? `Uploading file ${i + 1}/${totalFiles}: ${file.name}`
+        : `Uploading and indexing your document…`;
 
-    if (!res.ok) {
-      throw new Error(data.detail || 'Upload failed.');
+      setStatus('loading', `<span class="spinner"></span> ${escapeHtml(progressLabel)}`);
+
+      // Highlight current file in the list
+      highlightFileInList(i);
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // After first upload, append subsequent files to the same session
+      if (currentSessionId) {
+        formData.append('session_id', currentSessionId);
+      }
+
+      const res = await fetch('/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.detail || `Upload failed for ${file.name}.`);
+      }
+
+      // Capture session_id from first upload
+      if (!currentSessionId) {
+        currentSessionId = data.session_id;
+      }
+
+      lastData = data;
+
+      // Mark file as uploaded in the list
+      markFileUploaded(i);
     }
 
-    state.sessionId = data.session_id;
+    // All files uploaded successfully
+    state.sessionId = currentSessionId;
 
-    // Update session card
-    dom.statFile().textContent    = data.file_name;
-    dom.statPages().textContent   = data.page_count.toLocaleString();
-    dom.statChunks().textContent  = data.chunk_count.toLocaleString();
-    dom.statSession().textContent = data.session_id;
-    dom.statSession().title       = data.session_id;
+    // Update session card with aggregate data
+    dom.statFile().textContent    = lastData.file_name;
+    dom.statPages().textContent   = lastData.page_count.toLocaleString();
+    dom.statChunks().textContent  = lastData.chunk_count.toLocaleString();
+    dom.statSession().textContent = lastData.session_id;
+    dom.statSession().title       = lastData.session_id;
     dom.sessionCard().classList.remove('hidden');
 
-    // Show append checkbox option now that a session is active
+    // Show append checkbox now that a session is active
     const appendOption = document.getElementById('append-option-container');
     if (appendOption) appendOption.classList.remove('hidden');
 
-    setStatus('success', `✅ ${data.message} — ${data.chunk_count} chunks indexed across ${data.page_count} pages.`);
+    const message = isBatch
+      ? `✅ All ${totalFiles} files indexed! ${lastData.chunk_count} chunks across ${lastData.page_count} pages.`
+      : `✅ ${lastData.message} — ${lastData.chunk_count} chunks indexed across ${lastData.page_count} pages.`;
+
+    setStatus('success', message);
     setIndicator('ready');
-    showToast('Document indexed! You can now ask questions.', 'success');
+    showToast(
+      isBatch
+        ? `${totalFiles} documents indexed! You can now ask questions.`
+        : 'Document indexed! You can now ask questions.',
+      'success'
+    );
 
     // Enable chat
     dom.questionInput().disabled = false;
@@ -180,8 +292,8 @@ async function handleUpload() {
     dom.emptyState().classList.add('hidden');
     dom.chatContainer().classList.remove('hidden');
 
-    // Clear file selection but keep success message status
-    clearFile(true);
+    // Clear file selection but keep success message
+    clearFiles(true);
 
   } catch (err) {
     setStatus('error', `❌ ${err.message}`);
@@ -190,6 +302,36 @@ async function handleUpload() {
     dom.uploadBtn().disabled = false;
   } finally {
     state.isUploading = false;
+  }
+}
+
+/**
+ * Highlight the currently uploading file in the list.
+ */
+function highlightFileInList(index) {
+  const items = dom.fileList()?.querySelectorAll('.file-list-item');
+  if (!items) return;
+  items.forEach((item, i) => {
+    item.classList.toggle('file-list-item--uploading', i === index);
+    if (i < index) {
+      item.classList.add('file-list-item--done');
+    }
+  });
+}
+
+/**
+ * Mark a file as successfully uploaded in the list.
+ */
+function markFileUploaded(index) {
+  const items = dom.fileList()?.querySelectorAll('.file-list-item');
+  if (!items || !items[index]) return;
+  items[index].classList.remove('file-list-item--uploading');
+  items[index].classList.add('file-list-item--done');
+
+  // Replace the remove button with a check mark
+  const removeBtn = items[index].querySelector('.file-list-item__remove');
+  if (removeBtn) {
+    removeBtn.outerHTML = '<span class="file-list-item__check" aria-hidden="true">✓</span>';
   }
 }
 
@@ -278,12 +420,6 @@ function removeSkeleton(id) {
   document.getElementById(id)?.remove();
 }
 
-/**
- * Render the assistant's answer with source chips and related topic chips.
- * @param {string} answer
- * @param {Array} sources
- * @param {Array<string>} topics
- */
 /**
  * Render the assistant's answer with source chips, equation cards, and related topic chips.
  * @param {string} answer
@@ -651,8 +787,8 @@ function resetSession() {
   dom.emptyState().classList.remove('hidden');
   dom.questionInput().disabled = true;
   dom.askBtn().disabled = true;
-  clearFile();
-  showToast('Session cleared. Start fresh by uploading a new PDF.', 'info');
+  clearFiles();
+  showToast('Session cleared. Start fresh by uploading new PDFs.', 'info');
 }
 
 // ══════════════════════════════════════════════════════

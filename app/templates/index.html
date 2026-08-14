@@ -60,23 +60,33 @@
           class="drop-zone"
           role="button"
           tabindex="0"
-          aria-label="Drag and drop a chemistry PDF or click to browse"
+          aria-label="Drag and drop chemistry PDFs or click to browse"
           aria-describedby="drop-hint"
         >
           <div class="drop-zone__icon" aria-hidden="true">📂</div>
-          <p class="drop-zone__label">Drag & drop your PDF</p>
-          <p class="drop-zone__hint" id="drop-hint">or <span class="link-style">click to browse</span></p>
-          <input type="file" id="file-input" accept=".pdf,application/pdf" hidden aria-hidden="true" />
+          <p class="drop-zone__label">Drag & drop your PDFs</p>
+          <p class="drop-zone__hint" id="drop-hint">or <span class="link-style">click to browse</span> · Multiple files supported</p>
+          <input type="file" id="file-input" accept=".pdf,application/pdf" multiple hidden aria-hidden="true" />
         </div>
 
-        <!-- File preview -->
-        <div id="file-preview" class="file-preview hidden" aria-live="polite">
-          <div class="file-preview__icon" aria-hidden="true">📋</div>
-          <div class="file-preview__info">
-            <span id="file-name" class="file-preview__name"></span>
-            <span id="file-size" class="file-preview__size"></span>
+        <!-- File list preview (multi-file) -->
+        <div id="file-list-preview" class="file-list-preview hidden" aria-live="polite">
+          <div class="file-list-header">
+            <span class="file-list-header__label">
+              <span class="file-list-header__icon" aria-hidden="true">📋</span>
+              Selected Files
+            </span>
+            <span id="file-count-badge" class="file-count-badge">0</span>
           </div>
-          <button id="clear-file-btn" class="icon-btn" aria-label="Remove selected file" title="Remove">✕</button>
+          <ul id="file-list" class="file-list" role="list"></ul>
+          <div class="file-list-actions">
+            <button id="add-more-btn" class="btn btn--ghost btn--sm" type="button" title="Add more PDFs">
+              <span aria-hidden="true">＋</span> Add More
+            </button>
+            <button id="clear-all-btn" class="btn btn--ghost btn--sm btn--danger-ghost" type="button" title="Remove all files">
+              Clear All
+            </button>
+          </div>
         </div>
 
         <!-- Upload button -->
