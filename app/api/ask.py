@@ -98,6 +98,7 @@ async def ask_question(request: AskRequest) -> AskResponse:
     prompt = PromptBuilder.build(
         question=request.question,
         documents=documents,
+        allow_external_examples=request.allow_external_examples,
     )
 
     try:

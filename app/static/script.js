@@ -650,7 +650,7 @@ function escapeHtml(str) {
 
 /**
  * Renders a chemistry equation string via KaTeX.
- * Converts chemistry-style notation to LaTeX-compatible format.
+ * Only handles actual chemical formulas — no \text{} wrapping.
  * @param {string} eq - The equation string (e.g. "2H_{2} + O_{2} → 2H_{2}O")
  * @returns {string} HTML string with rendered equation
  */
@@ -662,12 +662,11 @@ function renderChemEquation(eq) {
       .replace(/⟶/g, '\\longrightarrow ')
       .replace(/→/g, '\\rightarrow ')
       .replace(/←/g, '\\leftarrow ')
-      .replace(/Δ/g, '\\Delta ');
+      .replace(/Δ/g, '\\Delta ')
+      .replace(/∝/g, '\\propto ');
 
-    // Wrap in \text{} for proper chemistry-style upright text rendering
-    // But preserve _{} and ^{} as math mode
-    // Use \mathrm for chemistry (upright letters)
-    latex = '\\mathrm{' + latex + '}';
+    // Don't wrap in \mathrm{} — it breaks \text{} and complex expressions.
+    // KaTeX handles chemistry subscripts/superscripts natively.
 
     if (typeof katex !== 'undefined') {
       return katex.renderToString(latex, {
@@ -693,6 +692,87 @@ function renderChemEquationFallback(eq) {
     .replace(/→/g, '<span class="chem-arrow">→</span>')
     .replace(/⇌/g, '<span class="chem-arrow">⇌</span>')
     .replace(/⟶/g, '<span class="chem-arrow">⟶</span>');
+}
+
+/**
+ * Sanitize any residual LaTeX commands that Gemini might still output
+ * in the answer text (outside of $$ blocks). Converts them to readable text.
+ */
+function sanitizeLatexFromText(text) {
+  return text
+    // \text{something} → something
+    .replace(/\\text\{([^}]*)\}/g, '$1')
+    // \mathrm{something} → something
+    .replace(/\\mathrm\{([^}]*)\}/g, '$1')
+    // \propto → ∝
+    .replace(/\\propto/g, '∝')
+    // \infty → ∞
+    .replace(/\\infty/g, '∞')
+    // \approx → ≈
+    .replace(/\\approx/g, '≈')
+    // \neq → ≠
+    .replace(/\\neq/g, '≠')
+    // \rightarrow → →
+    .replace(/\\rightarrow/g, '→')
+    // \leftarrow → ←
+    .replace(/\\leftarrow/g, '←')
+    // \rightleftharpoons → ⇌
+    .replace(/\\rightleftharpoons/g, '⇌')
+    // \Delta → Δ
+    .replace(/\\Delta/g, 'Δ')
+    // \sigma → σ, \pi → π
+    .replace(/\\sigma/g, 'σ')
+    .replace(/\\pi/g, 'π')
+    // Clean up any remaining backslashes before common words
+    .replace(/\\([a-zA-Z]+)\{([^}]*)\}/g, '$2')
+    // Remove stray backslashes
+    .replace(/\\\\/g, '');
+}
+
+/**
+ * Minimal markdown-like formatting for the answer text.
+ * Converts **bold**, line breaks, page citations, and $$equation$$ blocks.
+ * Also sanitizes any residual LaTeX commands.
+ */
+function formatAnswer(text) {
+  // First, sanitize any LaTeX that appears OUTSIDE of $$ blocks
+  // Split by $$, sanitize non-equation parts, rejoin
+  const parts = text.split(/(\$\$[^$]+?\$\$)/g);
+  const processed = parts.map((part, i) => {
+    if (part.startsWith('$$') && part.endsWith('$$')) {
+      return part; // keep equation blocks as-is
+    }
+    return sanitizeLatexFromText(part); // sanitize plain text parts
+  }).join('');
+
+  let html = escapeHtml(processed);
+
+  // Render $$...$$ equation blocks via KaTeX
+  html = html.replace(/\$\$([^$]+?)\$\$/g, (_, eq) => {
+    // Unescape HTML entities back for KaTeX processing
+    const raw = eq
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'");
+    const rendered = renderChemEquation(raw.trim());
+    return `<span class="chem-equation-inline">${rendered}</span>`;
+  });
+
+  // Standard formatting
+  html = html
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br />')
+    .replace(/\(Page (\d+)\)/g, '<span style="color:var(--clr-primary-glow);font-weight:600">(Page $1)</span>');
+
+  // Handle _{} and ^{} in plain text (outside of KaTeX rendered blocks)
+  // This catches inline formulas that weren't wrapped in $$
+  html = html
+    .replace(/_{([^}]+)}/g, '<sub>$1</sub>')
+    .replace(/\^{([^}]+)}/g, '<sup>$1</sup>');
+
+  return html;
 }
 
 /**
@@ -728,35 +808,6 @@ function subscriptify(s) {
 function superscriptify(s) {
   const map = { '0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','+':'⁺','-':'⁻','(':'⁽',')':'⁾' };
   return s.split('').map(c => map[c] || c).join('');
-}
-
-/**
- * Minimal markdown-like formatting for the answer text.
- * Converts **bold**, line breaks, page citations, and $$equation$$ blocks.
- */
-function formatAnswer(text) {
-  let html = escapeHtml(text);
-
-  // Render $$...$$ equation blocks via KaTeX
-  html = html.replace(/\$\$([^$]+?)\$\$/g, (_, eq) => {
-    // Unescape HTML entities back for KaTeX processing
-    const raw = eq
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#039;/g, "'");
-    const rendered = renderChemEquation(raw.trim());
-    return `<span class="chem-equation-inline">${rendered}</span>`;
-  });
-
-  // Standard formatting
-  html = html
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br />')
-    .replace(/\(Page (\d+)\)/g, '<span style="color:var(--clr-primary-glow);font-weight:600">(Page $1)</span>');
-
-  return html;
 }
 
 // ══════════════════════════════════════════════════════

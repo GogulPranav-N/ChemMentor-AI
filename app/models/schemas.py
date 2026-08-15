@@ -59,6 +59,10 @@ class AskRequest(BaseModel):
         le=20,
         description="Number of chunks to retrieve (overrides server default).",
     )
+    allow_external_examples: bool = Field(
+        default=False,
+        description="If true, allow supplementary examples from general chemistry knowledge.",
+    )
 
     @field_validator("question")
     @classmethod
