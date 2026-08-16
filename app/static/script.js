@@ -355,6 +355,9 @@ async function handleAsk() {
   const skeletonId = appendSkeleton();
   setIndicator('loading');
 
+  const externalExamplesToggle = document.getElementById('external-examples-toggle');
+  const allowExternalExamples = externalExamplesToggle ? externalExamplesToggle.checked : false;
+
   try {
     const res = await fetch('/ask', {
       method: 'POST',
@@ -363,6 +366,7 @@ async function handleAsk() {
         question,
         session_id: state.sessionId,
         top_k: 5,
+        allow_external_examples: allowExternalExamples,
       }),
     });
     const data = await res.json();
