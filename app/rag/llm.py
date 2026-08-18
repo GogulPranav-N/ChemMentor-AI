@@ -211,16 +211,25 @@ class GeminiLLMClient:
             topics = []
         topics = [str(t).strip() for t in topics if str(t).strip()][:4]
 
-        # Parse equations array
+        # Parse equations array — ONLY keep actual reactions with arrows
         raw_equations = data.get("equations", [])
         equations: list[EquationItem] = []
         if isinstance(raw_equations, list):
-            for eq in raw_equations[:6]:
+            for eq in raw_equations[:10]:  # check more, keep up to 6
                 if isinstance(eq, dict) and eq.get("equation"):
-                    equations.append(EquationItem(
-                        equation=str(eq["equation"]).strip(),
-                        label=str(eq.get("label", "")).strip(),
-                    ))
+                    eq_str = str(eq["equation"]).strip()
+                    if self._is_real_reaction(eq_str):
+                        equations.append(EquationItem(
+                            equation=eq_str,
+                            label=str(eq.get("label", "")).strip(),
+                        ))
+                if len(equations) >= 6:
+                    break
+
+        # Fallback: if LLM returned no valid reactions but the answer text
+        # contains $$...$$ reaction blocks, extract them automatically
+        if not equations:
+            equations = self._extract_reactions_from_answer(answer)
 
         return LLMResponse(
             answer=answer,
@@ -228,6 +237,33 @@ class GeminiLLMClient:
             related_topics=topics,
             raw_response=raw,
         )
+
+    @staticmethod
+    def _is_real_reaction(eq_str: str) -> bool:
+        """Check if a string represents an actual chemical reaction (has an arrow)."""
+        # Must contain a reaction arrow to be considered a real reaction
+        reaction_arrows = ['→', '⇌', '⟶', '←', '->', '<->', '=>', '\\rightarrow',
+                           '\\longrightarrow', '\\rightleftharpoons']
+        return any(arrow in eq_str for arrow in reaction_arrows)
+
+    @staticmethod
+    def _extract_reactions_from_answer(answer: str) -> list:
+        """Extract $$...$$ blocks from the answer that contain reaction arrows."""
+        import re as _re
+        pattern = _re.compile(r'\$\$(.+?)\$\$')
+        matches = pattern.findall(answer)
+        reactions = []
+        reaction_arrows = ['→', '⇌', '⟶', '←', '->', '<=>', '=>']
+        for match in matches:
+            eq_str = match.strip()
+            if any(arrow in eq_str for arrow in reaction_arrows):
+                reactions.append(EquationItem(
+                    equation=eq_str,
+                    label="",
+                ))
+            if len(reactions) >= 6:
+                break
+        return reactions
 
     @staticmethod
     def _extract_incomplete_json_answer(clean_text: str) -> str:

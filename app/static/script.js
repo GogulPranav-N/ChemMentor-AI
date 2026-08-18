@@ -442,10 +442,14 @@ function appendAssistantMessage(answer, sources, topics, equations = []) {
   bubble.className = 'message__bubble';
   bubble.innerHTML = formatAnswer(answer);
 
-  // ── Equation cards
+  // ── Equation cards (only show actual reactions with arrows)
   let equationsHtml = '';
-  if (equations.length > 0 && !isFallback) {
-    const cards = equations.map((eq, i) => {
+  const reactionArrows = ['→', '⇌', '⟶', '←', '->', '<=>', '=>'];
+  const realReactions = equations.filter(eq =>
+    reactionArrows.some(arrow => eq.equation.includes(arrow))
+  );
+  if (realReactions.length > 0 && !isFallback) {
+    const cards = realReactions.map((eq, i) => {
       const rendered = renderChemEquation(eq.equation);
       const labelHtml = eq.label ? `<span class="equation-card__label">${escapeHtml(eq.label)}</span>` : '';
       return `
@@ -462,7 +466,7 @@ function appendAssistantMessage(answer, sources, topics, equations = []) {
     }).join('');
     equationsHtml = `
       <div class="equations-section">
-        <p class="chips-label">⚗️ Key Equations</p>
+        <p class="chips-label">⚗️ Key Reactions</p>
         <div class="equations-grid">${cards}</div>
       </div>`;
   }
@@ -514,7 +518,7 @@ function appendAssistantMessage(answer, sources, topics, equations = []) {
       e.stopPropagation();
       const card = btn.closest('.equation-card');
       const idx = parseInt(card.dataset.eqIndex, 10);
-      const eqText = equations[idx]?.equation || '';
+      const eqText = realReactions[idx]?.equation || '';
       copyEquationToClipboard(eqText, btn);
     });
   });
