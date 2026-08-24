@@ -298,12 +298,19 @@ class PDFParser:
     @staticmethod
     def _clean_text(text: str) -> str:
         """
-        Normalize whitespace without collapsing paragraph breaks.
-
-        Replaces runs of spaces/tabs with a single space while preserving
-        newlines so that the chunker can use them as natural split points.
+        Normalize whitespace without collapsing paragraph breaks, and clean
+        common PDF extraction artifacts for chemical arrows and symbols.
         """
         import re
+
+        # Normalize common PDF font glyphs for chemical arrows
+        text = text.replace("\uf0e0", "→")
+        text = text.replace("\u2192", "→")
+        text = text.replace("\u27f6", "→")
+        text = text.replace("\u21cc", "⇌")
+        text = text.replace("\u21c4", "⇌")
+        text = text.replace("\u21d4", "⇌")
+
         # Collapse horizontal whitespace (spaces/tabs) without touching newlines
         text = re.sub(r"[ \t]+", " ", text)
         # Remove lines that are purely whitespace

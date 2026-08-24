@@ -523,6 +523,15 @@ function appendAssistantMessage(answer, sources, topics, equations = []) {
     });
   });
 
+  // Attach copy handlers for in-text reaction box overlays
+  div.querySelectorAll('.reaction-box-copy').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const rawEq = decodeURIComponent(btn.dataset.rawEq || '');
+      copyEquationToClipboard(rawEq, btn);
+    });
+  });
+
   scrollToBottom();
 }
 
@@ -657,36 +666,71 @@ function escapeHtml(str) {
 }
 
 /**
- * Renders a chemistry equation string via KaTeX.
- * Only handles actual chemical formulas — no \text{} wrapping.
- * @param {string} eq - The equation string (e.g. "2H_{2} + O_{2} → 2H_{2}O")
+ * Renders a chemistry equation string via KaTeX (with mhchem support) or styled fallback.
+ * @param {string} eq - The equation string (e.g. "2H_{2} + O_{2} → 2H_{2}O" or "\ce{N2 + 3H2 <=> 2NH3}")
  * @returns {string} HTML string with rendered equation
  */
 function renderChemEquation(eq) {
-  try {
-    // Convert chemistry arrows to LaTeX commands
-    let latex = eq
-      .replace(/⇌/g, '\\rightleftharpoons ')
-      .replace(/⟶/g, '\\longrightarrow ')
-      .replace(/→/g, '\\rightarrow ')
-      .replace(/←/g, '\\leftarrow ')
-      .replace(/Δ/g, '\\Delta ')
-      .replace(/∝/g, '\\propto ');
+  if (!eq) return '';
+  const trimmed = String(eq).trim();
 
-    // Don't wrap in \mathrm{} — it breaks \text{} and complex expressions.
-    // KaTeX handles chemistry subscripts/superscripts natively.
+  if (typeof katex !== 'undefined') {
+    // 1. If already wrapped in \ce{...}, render directly
+    if (trimmed.startsWith('\\ce{') && trimmed.endsWith('}')) {
+      try {
+        return katex.renderToString(trimmed, {
+          throwOnError: false,
+          displayMode: true,
+          trust: true,
+        });
+      } catch (e) { /* fallback below */ }
+    }
 
-    if (typeof katex !== 'undefined') {
+    // 2. Try wrapping in \ce{...} for mhchem
+    try {
+      let mhchemInput = trimmed
+        .replace(/\\rightarrow/g, '->')
+        .replace(/\\rightleftharpoons/g, '<=>')
+        .replace(/\\longrightarrow/g, '->')
+        .replace(/\\leftarrow/g, '<-')
+        .replace(/\\Delta/g, '\\Delta ')
+        .replace(/→/g, '->')
+        .replace(/⇌/g, '<=>')
+        .replace(/⟶/g, '->')
+        .replace(/←/g, '<-')
+        .replace(/_{([0-9a-zA-Z]+)}/g, '$1')
+        .replace(/\^{([0-9a-zA-Z+-]+)}/g, '^$1');
+
+      return katex.renderToString(`\\ce{${mhchemInput}}`, {
+        throwOnError: false,
+        displayMode: true,
+        trust: true,
+      });
+    } catch (e) {
+      // mhchem failed, try standard LaTeX below
+    }
+
+    // 3. Fallback to standard LaTeX math rendering
+    try {
+      let latex = trimmed
+        .replace(/⇌/g, '\\rightleftharpoons ')
+        .replace(/⟶/g, '\\longrightarrow ')
+        .replace(/→/g, '\\rightarrow ')
+        .replace(/←/g, '\\leftarrow ')
+        .replace(/Δ/g, '\\Delta ')
+        .replace(/∝/g, '\\propto ');
+
       return katex.renderToString(latex, {
         throwOnError: false,
         displayMode: true,
         trust: true,
       });
+    } catch (e) {
+      // KaTeX failed — fall through to styled HTML
     }
-  } catch (e) {
-    // KaTeX failed — fall back to styled HTML
   }
-  return renderChemEquationFallback(eq);
+
+  return renderChemEquationFallback(trimmed);
 }
 
 /**
@@ -695,11 +739,14 @@ function renderChemEquation(eq) {
  */
 function renderChemEquationFallback(eq) {
   return escapeHtml(eq)
+    .replace(/\\ce\{([^}]+)\}/g, '$1')
     .replace(/_{([^}]+)}/g, '<sub>$1</sub>')
     .replace(/\^{([^}]+)}/g, '<sup>$1</sup>')
     .replace(/→/g, '<span class="chem-arrow">→</span>')
     .replace(/⇌/g, '<span class="chem-arrow">⇌</span>')
-    .replace(/⟶/g, '<span class="chem-arrow">⟶</span>');
+    .replace(/⟶/g, '<span class="chem-arrow">⟶</span>')
+    .replace(/->/g, '<span class="chem-arrow">→</span>')
+    .replace(/<=>/g, '<span class="chem-arrow">⇌</span>');
 }
 
 /**
@@ -738,15 +785,15 @@ function sanitizeLatexFromText(text) {
 }
 
 /**
- * Minimal markdown-like formatting for the answer text.
- * Converts **bold**, line breaks, page citations, and $$equation$$ blocks.
- * Also sanitizes any residual LaTeX commands.
+ * Format the answer text:
+ * - Full chemical reactions with arrows become standalone Reaction Box Overlays
+ * - Molecular formulas without arrows become inline chemistry pills
+ * - Bold, line breaks, page citations, and fallback subscript/superscripts
  */
 function formatAnswer(text) {
   // First, sanitize any LaTeX that appears OUTSIDE of $$ blocks
-  // Split by $$, sanitize non-equation parts, rejoin
   const parts = text.split(/(\$\$[^$]+?\$\$)/g);
-  const processed = parts.map((part, i) => {
+  const processed = parts.map((part) => {
     if (part.startsWith('$$') && part.endsWith('$$')) {
       return part; // keep equation blocks as-is
     }
@@ -755,7 +802,10 @@ function formatAnswer(text) {
 
   let html = escapeHtml(processed);
 
-  // Render $$...$$ equation blocks via KaTeX
+  // Regex to detect if an equation contains a reaction arrow
+  const reactionArrowRegex = /→|⇌|⟶|←|->|<=>|=>|\\rightarrow|\\rightleftharpoons|\\ce/;
+
+  // Render $$...$$ equation blocks
   html = html.replace(/\$\$([^$]+?)\$\$/g, (_, eq) => {
     // Unescape HTML entities back for KaTeX processing
     const raw = eq
@@ -763,9 +813,33 @@ function formatAnswer(text) {
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
-      .replace(/&#039;/g, "'");
-    const rendered = renderChemEquation(raw.trim());
-    return `<span class="chem-equation-inline">${rendered}</span>`;
+      .replace(/&#039;/g, "'")
+      .trim();
+
+    const isReaction = reactionArrowRegex.test(raw);
+    const rendered = renderChemEquation(raw);
+
+    if (isReaction) {
+      // Dedicated Reaction Box Overlay
+      const encodedRaw = encodeURIComponent(raw);
+      return `
+        <div class="reaction-box-overlay">
+          <div class="reaction-box-header">
+            <span class="reaction-box-badge">
+              <span class="reaction-icon" aria-hidden="true">⚗️</span> Chemical Reaction
+            </span>
+            <button class="reaction-box-copy" title="Copy reaction" aria-label="Copy reaction" data-raw-eq="${encodedRaw}">
+              <span class="copy-icon" aria-hidden="true">📋</span>
+              <span class="copy-text">Copy</span>
+              <span class="copy-done hidden">✓ Copied</span>
+            </button>
+          </div>
+          <div class="reaction-box-formula">${rendered}</div>
+        </div>`;
+    } else {
+      // Inline formula pill
+      return `<span class="chem-equation-inline">${rendered}</span>`;
+    }
   });
 
   // Standard formatting
@@ -775,7 +849,6 @@ function formatAnswer(text) {
     .replace(/\(Page (\d+)\)/g, '<span style="color:var(--clr-primary-glow);font-weight:600">(Page $1)</span>');
 
   // Handle _{} and ^{} in plain text (outside of KaTeX rendered blocks)
-  // This catches inline formulas that weren't wrapped in $$
   html = html
     .replace(/_{([^}]+)}/g, '<sub>$1</sub>')
     .replace(/\^{([^}]+)}/g, '<sup>$1</sup>');
@@ -784,21 +857,27 @@ function formatAnswer(text) {
 }
 
 /**
- * Copy equation text to clipboard and show feedback.
+ * Copy equation text to clipboard and show visual feedback.
  */
 function copyEquationToClipboard(text, btn) {
-  // Convert _{} and ^{} to Unicode subscripts/superscripts for readable clipboard
+  // Convert LaTeX/mhchem markup to readable Unicode subscripts/superscripts
   const readable = text
+    .replace(/\\ce\{([^}]+)\}/g, '$1')
     .replace(/_{([^}]+)}/g, (_, s) => subscriptify(s))
-    .replace(/\^{([^}]+)}/g, (_, s) => superscriptify(s));
+    .replace(/\^{([^}]+)}/g, (_, s) => superscriptify(s))
+    .replace(/->/g, '→')
+    .replace(/<=>/g, '⇌');
 
   navigator.clipboard.writeText(readable).then(() => {
     const icon = btn.querySelector('.copy-icon');
+    const textSpan = btn.querySelector('.copy-text');
     const done = btn.querySelector('.copy-done');
     if (icon) icon.classList.add('hidden');
+    if (textSpan) textSpan.classList.add('hidden');
     if (done) done.classList.remove('hidden');
     setTimeout(() => {
       if (icon) icon.classList.remove('hidden');
+      if (textSpan) textSpan.classList.remove('hidden');
       if (done) done.classList.add('hidden');
     }, 1500);
   }).catch(() => {
