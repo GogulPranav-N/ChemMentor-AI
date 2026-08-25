@@ -440,210 +440,12 @@ function removeSkeleton(id) {
  * @param {Array} structures
  */
 function appendAssistantMessage(answer, sources, topics, equations = [], structures = []) {
-  const isFallback = answer.toLowerCase().includes('not present in the provided chapter');
+  const isFallback = answer.toLowerCase().includes('not present in the provided chapter') ||
+                     answer.toLowerCase().includes("couldn't find this information") ||
+                     answer.toLowerCase().includes("could not find this information");
 
   const div = document.createElement('div');
   div.className = `message message--assistant${isFallback ? ' message--fallback' : ''}`;
-
-  // ── Auto-synthesize structure cards if not provided by LLM
-  if ((!structures || structures.length === 0) && !isFallback) {
-    const autoCards = [];
-
-    // 1. Check for Special NCERT Structures
-    if (/\bB_?2H_?6\b|diborane|banana bond/i.test(answer)) {
-      autoCards.push({
-        molecule: 'B_{2}H_{6}',
-        hybridisation: 'sp³ (Boron)',
-        geometry: 'Bridged Banana-Bond Structure (3c–2e)',
-        bond_angles: '120° (terminal H–B–H), 97° (bridge H–B–H)',
-        central_atom: 'B',
-        diagram_ascii: 'SPECIAL:B2H6'
-      });
-    }
-    if (/\bCrO_?5\b|chromium pentoxide|butterfly/i.test(answer)) {
-      autoCards.push({
-        molecule: 'CrO_{5}',
-        hybridisation: 'd³s / Octahedral derivative',
-        geometry: 'Butterfly Peroxide Linkage Structure',
-        bond_angles: 'Oxidation state of Cr = +6',
-        central_atom: 'Cr',
-        diagram_ascii: 'SPECIAL:CrO5'
-      });
-    }
-    if (/\bO_?3\b|ozone|resonance hybrid/i.test(answer) && !/mo theory|molecular orbital/i.test(answer)) {
-      autoCards.push({
-        molecule: 'O_{3}',
-        hybridisation: 'sp²',
-        geometry: 'Bent (V-Shaped) with Resonance',
-        bond_angles: '116.8° (Experimental)',
-        central_atom: 'O',
-        diagram_ascii: 'SPECIAL:O3'
-      });
-    }
-    if (/\bH_?2S_?2O_?8\b|marshall/i.test(answer)) {
-      autoCards.push({
-        molecule: 'H_{2}S_{2}O_{8}',
-        hybridisation: 'sp³ (Sulfur)',
-        geometry: 'Peroxodisulfuric Acid (–O–O– Bridge)',
-        bond_angles: 'Oxidation state of S = +6',
-        central_atom: 'S',
-        diagram_ascii: 'SPECIAL:H2S2O8'
-      });
-    }
-    if (/\bKHF_?2\b|bifluoride/i.test(answer)) {
-      autoCards.push({
-        molecule: 'KHF_{2}',
-        hybridisation: 'Linear [F···H···F]⁻',
-        geometry: 'Symmetric Hydrogen-Bonded Complex',
-        bond_angles: '180°',
-        central_atom: 'H',
-        diagram_ascii: 'SPECIAL:KHF2'
-      });
-    }
-
-    // 2. Check for Molecular Orbital (MO) Theory questions
-    const hasMO = /molecular orbital|mo theory|energy level diagram|energy level order|orbital mixing|homonuclear|heteronuclear/i.test(answer) ||
-                  /bond order|paramagnetic|diamagnetic/i.test(answer);
-    if (hasMO) {
-      if (/\bO_?2\b|oxygen/i.test(answer)) {
-        autoCards.push({
-          molecule: 'O_{2}',
-          geometry: 'Linear (MO Theory: > 14e⁻, No sp-mixing shift)',
-          bond_angles: 'Bond Order = 2.0 (Paramagnetic: 2 unpaired e⁻ in π*2p)',
-          central_atom: 'O-O',
-          diagram_ascii: 'MO_DIAGRAM:O2'
-        });
-      }
-      if (/\bN_?2\b|nitrogen/i.test(answer)) {
-        autoCards.push({
-          molecule: 'N_{2}',
-          geometry: 'Linear (MO Theory: ≤ 14e⁻, With sp-mixing shift)',
-          bond_angles: 'Bond Order = 3.0 (Diamagnetic: 0 unpaired e⁻)',
-          central_atom: 'N-N',
-          diagram_ascii: 'MO_DIAGRAM:N2'
-        });
-      }
-      if (/\bF_?2\b|fluorine/i.test(answer)) {
-        autoCards.push({
-          molecule: 'F_{2}',
-          geometry: 'Linear (MO Theory: > 14e⁻)',
-          bond_angles: 'Bond Order = 1.0 (Diamagnetic)',
-          central_atom: 'F-F',
-          diagram_ascii: 'MO_DIAGRAM:F2'
-        });
-      }
-      if (/\b(C_?2|B_?2|Be_?2|Li_?2|H_?2|He_?2|CO|NO)\b/i.test(answer)) {
-        const mMatch = answer.match(/\b(C_?2|B_?2|Be_?2|Li_?2|H_?2|He_?2|CO|NO)\b/i);
-        if (mMatch && !autoCards.some(m => m.molecule.includes(mMatch[1]))) {
-          autoCards.push({
-            molecule: mMatch[1].replace(/_?2/, '_{2}'),
-            geometry: 'Linear (MO Theory)',
-            bond_angles: 'Molecular Orbital Energy Configuration',
-            central_atom: mMatch[1],
-            diagram_ascii: `MO_DIAGRAM:${mMatch[1]}`
-          });
-        }
-      }
-    }
-
-    // 3. Check for VSEPR molecules
-    if (autoCards.length === 0) {
-      if (/\bPCl_?5\b/i.test(answer)) {
-        autoCards.push({
-          molecule: 'PCl_{5}',
-          hybridisation: 'sp³d',
-          geometry: 'Trigonal Bipyramidal',
-          bond_angles: '120° (equatorial), 180° (axial)',
-          central_atom: 'P',
-          diagram_ascii: 'VSEPR:PCl5'
-        });
-      }
-      if (/\bSF_?6\b/i.test(answer)) {
-        autoCards.push({
-          molecule: 'SF_{6}',
-          hybridisation: 'sp³d²',
-          geometry: 'Octahedral',
-          bond_angles: '90° (all F–S–F)',
-          central_atom: 'S',
-          diagram_ascii: 'VSEPR:SF6'
-        });
-      }
-      if (/\bXeF_?4\b/i.test(answer)) {
-        autoCards.push({
-          molecule: 'XeF_{4}',
-          hybridisation: 'sp³d²',
-          geometry: 'Square Planar (2 lone pairs)',
-          bond_angles: '90°',
-          central_atom: 'Xe',
-          diagram_ascii: 'VSEPR:XeF4'
-        });
-      }
-      if (/\bSF_?4\b/i.test(answer)) {
-        autoCards.push({
-          molecule: 'SF_{4}',
-          hybridisation: 'sp³d',
-          geometry: 'Seesaw (1 lone pair)',
-          bond_angles: '173° (axial), 102° (equatorial)',
-          central_atom: 'S',
-          diagram_ascii: 'VSEPR:SF4'
-        });
-      }
-      if (/\bClF_?3\b/i.test(answer)) {
-        autoCards.push({
-          molecule: 'ClF_{3}',
-          hybridisation: 'sp³d',
-          geometry: 'T-Shaped (2 lone pairs)',
-          bond_angles: '87.5°',
-          central_atom: 'Cl',
-          diagram_ascii: 'VSEPR:ClF3'
-        });
-      }
-      if (/\bNH_?3\b/i.test(answer)) {
-        autoCards.push({
-          molecule: 'NH_{3}',
-          hybridisation: 'sp³',
-          geometry: 'Trigonal Pyramidal (1 lone pair)',
-          bond_angles: '107°',
-          central_atom: 'N',
-          diagram_ascii: 'VSEPR:NH3'
-        });
-      }
-      if (/\bH_?2O\b/i.test(answer)) {
-        autoCards.push({
-          molecule: 'H_{2}O',
-          hybridisation: 'sp³',
-          geometry: 'Bent / V-Shaped (2 lone pairs)',
-          bond_angles: '104.5°',
-          central_atom: 'O',
-          diagram_ascii: 'VSEPR:H2O'
-        });
-      }
-      if (/\bCH_?4\b/i.test(answer)) {
-        autoCards.push({
-          molecule: 'CH_{4}',
-          hybridisation: 'sp³',
-          geometry: 'Tetrahedral',
-          bond_angles: '109.5°',
-          central_atom: 'C',
-          diagram_ascii: 'VSEPR:CH4'
-        });
-      }
-      if (/\bBF_?3\b/i.test(answer)) {
-        autoCards.push({
-          molecule: 'BF_{3}',
-          hybridisation: 'sp²',
-          geometry: 'Trigonal Planar',
-          bond_angles: '120°',
-          central_atom: 'B',
-          diagram_ascii: 'VSEPR:BF3'
-        });
-      }
-    }
-
-    if (autoCards.length > 0) {
-      structures = autoCards;
-    }
-  }
 
   // ── Answer bubble HTML
   const bubbleHtml = `<div class="message__bubble">${formatAnswer(answer)}</div>`;
@@ -1172,7 +974,17 @@ function buildStructureDiagram(st, uniqueId) {
     return buildNCERTMODiagram(st);
   }
 
-  // 3. Render 3Dmol.js Interactive 3D Viewer for Molecular Geometry & Hybridisation
+  // 3. Check for Resonance Structures (2D SVG diagrams — canonical forms with ↔ arrows)
+  if (/BENZENE|C6H6/i.test(mol)) return buildBenzeneResonanceSVG();
+  if (/CO3|CARBONATE/i.test(mol)) return buildCarbonateResonanceSVG();
+  if (/NO3|NITRATE/i.test(mol)) return buildNitrateResonanceSVG();
+  if (/SO3.*2|SULPHITE|SULFITE/i.test(mol) && !/SO3[^2]/i.test(mol)) return buildSulphiteResonanceSVG();
+  if (/^SO2$|SULFUR.*DIOXIDE|SULPHUR.*DIOXIDE/i.test(mol)) return buildSO2ResonanceSVG();
+  if (/NO2|NITRITE/i.test(mol) && !/NO3/i.test(mol)) return buildNitriteResonanceSVG();
+  if (/CH3COO|ACETATE|CARBOXYLATE/i.test(mol)) return buildAcetateResonanceSVG();
+  if (/CLO4|PERCHLORATE/i.test(mol)) return buildPerchlorateResonanceSVG();
+
+  // 4. Render 3Dmol.js Interactive 3D Viewer for Molecular Geometry & Hybridisation
   if (st.geometry && st.geometry !== 'N/A' && st.geometry !== 'Linear (MO Theory)') {
     return build3DMolecularViewer(st, uid);
   }
@@ -1927,6 +1739,421 @@ function buildKHF2HydrogenBondSVG() {
         </svg>
       </div>
     </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 2D RESONANCE STRUCTURE SVG DIAGRAMS
+// Clean canonical forms with ↔ arrows, formal charges, and resonance hybrids
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Helper: generates the wrapper card HTML for all resonance SVGs.
+ */
+function _resonanceCard(title, badgeText, svgContent, footerText) {
+  return `
+    <div class="structure-diagram-box special-struct-card">
+      <div class="mo-diagram-header">
+        <span class="structure-diagram-label">🔄 ${title}</span>
+        <span class="mo-note-badge" style="color:#a78bfa">${badgeText}</span>
+      </div>
+      <div class="vsepr-canvas-wrap">
+        ${svgContent}
+      </div>
+      ${footerText ? `<div style="text-align:center;margin-top:0.4rem;font-size:0.72rem;color:#94a3b8">${footerText}</div>` : ''}
+    </div>`;
+}
+
+/** Helper: draw a single atom circle with label + optional formal charge */
+function _atom(cx, cy, r, fill, label, charge) {
+  const chargeText = charge ? `<tspan font-size="8" fill="#fbbf24">${charge}</tspan>` : '';
+  const textFill = ['#38bdf8','#fbbf24','#34d399'].includes(fill) ? '#0f172a' : '#ffffff';
+  return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>` +
+    `<text x="${cx}" y="${cy + 4}" fill="${textFill}" font-size="${r > 13 ? 11 : 9}" font-weight="bold" text-anchor="middle">${label}${chargeText}</text>`;
+}
+
+/** Helper: single bond line */
+function _single(x1, y1, x2, y2, color) {
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color || '#94a3b8'}" stroke-width="2.5"/>`;
+}
+
+/** Helper: double bond (two parallel lines) */
+function _double(x1, y1, x2, y2, color) {
+  const c = color || '#38bdf8';
+  const dx = y2 - y1, dy = -(x2 - x1);
+  const len = Math.sqrt(dx * dx + dy * dy);
+  const ox = (dx / len) * 2.5, oy = (dy / len) * 2.5;
+  return `<line x1="${x1 + ox}" y1="${y1 + oy}" x2="${x2 + ox}" y2="${y2 + oy}" stroke="${c}" stroke-width="2"/>` +
+    `<line x1="${x1 - ox}" y1="${y1 - oy}" x2="${x2 - ox}" y2="${y2 - oy}" stroke="${c}" stroke-width="2"/>`;
+}
+
+/** Helper: dashed bond for resonance hybrid */
+function _dashed(x1, y1, x2, y2, color) {
+  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color || '#a78bfa'}" stroke-width="2" stroke-dasharray="5,3"/>`;
+}
+
+/** Helper: double-headed resonance arrow ⟷ */
+function _arrow(x, y) {
+  return `<text x="${x}" y="${y}" fill="#fbbf24" font-size="20" font-weight="bold" text-anchor="middle">⟷</text>`;
+}
+
+/** Helper: equivalence sign ≡ */
+function _equiv(x, y) {
+  return `<text x="${x}" y="${y}" fill="#fbbf24" font-size="18" font-weight="bold" text-anchor="middle">≡</text>`;
+}
+
+// ── Benzene (C₆H₆) ──────────────────────────────────────────────────────────
+function buildBenzeneResonanceSVG() {
+  // Two Kekulé structures ↔ hybrid with delocalized circle
+  const W = 520, H = 170;
+  const r = 38; // hexagon radius
+
+  function hexagon(cx, cy, rad, bonds) {
+    // bonds = array of 6 booleans: true = double bond on that edge
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 3) * i - Math.PI / 2;
+      pts.push({ x: cx + rad * Math.cos(angle), y: cy + rad * Math.sin(angle) });
+    }
+    let svg = '';
+    for (let i = 0; i < 6; i++) {
+      const j = (i + 1) % 6;
+      if (bonds[i]) {
+        svg += _double(pts[i].x, pts[i].y, pts[j].x, pts[j].y, '#38bdf8');
+      } else {
+        svg += _single(pts[i].x, pts[i].y, pts[j].x, pts[j].y, '#94a3b8');
+      }
+    }
+    // C labels at vertices
+    for (let i = 0; i < 6; i++) {
+      svg += _atom(pts[i].x, pts[i].y, 8, '#334155', 'C', '');
+    }
+    return svg;
+  }
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+    <!-- Kekulé I -->
+    <text x="75" y="18" fill="#94a3b8" font-size="10" text-anchor="middle">Kekulé I</text>
+    ${hexagon(75, 88, r, [true, false, true, false, true, false])}
+    ${_arrow(160, 90)}
+    <!-- Kekulé II -->
+    <text x="245" y="18" fill="#94a3b8" font-size="10" text-anchor="middle">Kekulé II</text>
+    ${hexagon(245, 88, r, [false, true, false, true, false, true])}
+    ${_equiv(330, 90)}
+    <!-- Resonance Hybrid with circle -->
+    <text x="415" y="18" fill="#a78bfa" font-size="10" font-weight="600" text-anchor="middle">Hybrid</text>
+    ${(() => {
+      const cx = 415, cy = 88;
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i - Math.PI / 2;
+        pts.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) });
+      }
+      let s = '';
+      for (let i = 0; i < 6; i++) s += _single(pts[i].x, pts[i].y, pts[(i+1)%6].x, pts[(i+1)%6].y, '#94a3b8');
+      for (let i = 0; i < 6; i++) s += _atom(pts[i].x, pts[i].y, 8, '#334155', 'C', '');
+      s += `<circle cx="${cx}" cy="${cy}" r="22" fill="none" stroke="#a78bfa" stroke-width="2" stroke-dasharray="4,3"/>`;
+      return s;
+    })()}
+    <text x="${W/2}" y="${H - 8}" fill="#94a3b8" font-size="10" text-anchor="middle">All C–C bonds equal: 139 pm (intermediate between single 154 pm and double 134 pm)</text>
+  </svg>`;
+
+  return _resonanceCard('Benzene (C₆H₆) — Resonance Structures', 'Delocalized π electrons', svg,
+    'Bond Order = 1.5 per C–C bond • Planar hexagonal • sp² hybridised');
+}
+
+// ── Carbonate CO₃²⁻ ─────────────────────────────────────────────────────────
+function buildCarbonateResonanceSVG() {
+  const W = 520, H = 160;
+  // Each canonical: C center with 2 single (O⁻) + 1 double (O)
+
+  function carbonateForm(cx, cy, doubleIdx) {
+    // 3 oxygens arranged trigonally around C
+    const opos = [
+      { x: cx, y: cy - 40 },        // top
+      { x: cx - 36, y: cy + 24 },   // bottom-left
+      { x: cx + 36, y: cy + 24 }    // bottom-right
+    ];
+    let s = '';
+    for (let i = 0; i < 3; i++) {
+      if (i === doubleIdx) {
+        s += _double(cx, cy, opos[i].x, opos[i].y, '#38bdf8');
+        s += _atom(opos[i].x, opos[i].y, 11, '#38bdf8', 'O', '');
+      } else {
+        s += _single(cx, cy, opos[i].x, opos[i].y, '#f87171');
+        s += _atom(opos[i].x, opos[i].y, 11, '#f87171', 'O', '⁻');
+      }
+    }
+    s += _atom(cx, cy, 13, '#818cf8', 'C', '');
+    return s;
+  }
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+    <text x="12" y="16" fill="#94a3b8" font-size="10">[CO₃]²⁻</text>
+    ${carbonateForm(70, 82, 0)}
+    ${_arrow(140, 82)}
+    ${carbonateForm(210, 82, 1)}
+    ${_arrow(280, 82)}
+    ${carbonateForm(350, 82, 2)}
+    ${_equiv(420, 82)}
+    <!-- Hybrid: all dashed -->
+    ${_dashed(480, 82, 480, 42)}
+    ${_dashed(480, 82, 444, 106)}
+    ${_dashed(480, 82, 516, 106)}
+    ${_atom(480, 42, 10, '#a78bfa', 'O', '')}
+    ${_atom(444, 106, 10, '#a78bfa', 'O', '')}
+    ${_atom(516, 106, 10, '#a78bfa', 'O', '')}
+    ${_atom(480, 82, 12, '#818cf8', 'C', '')}
+    <text x="${W/2}" y="${H - 6}" fill="#94a3b8" font-size="10" text-anchor="middle">All 3 C–O bonds equal: 129 pm • Bond order = 1.33</text>
+  </svg>`;
+
+  return _resonanceCard('Carbonate Ion (CO₃²⁻) — Resonance', '3 equivalent canonical forms', svg, '');
+}
+
+// ── Nitrate NO₃⁻ ────────────────────────────────────────────────────────────
+function buildNitrateResonanceSVG() {
+  const W = 520, H = 160;
+
+  function nitrateForm(cx, cy, doubleIdx) {
+    const opos = [
+      { x: cx, y: cy - 40 },
+      { x: cx - 36, y: cy + 24 },
+      { x: cx + 36, y: cy + 24 }
+    ];
+    let s = '';
+    for (let i = 0; i < 3; i++) {
+      if (i === doubleIdx) {
+        s += _double(cx, cy, opos[i].x, opos[i].y, '#38bdf8');
+        s += _atom(opos[i].x, opos[i].y, 11, '#38bdf8', 'O', '');
+      } else {
+        s += _single(cx, cy, opos[i].x, opos[i].y, '#f87171');
+        s += _atom(opos[i].x, opos[i].y, 11, '#f87171', 'O', '⁻');
+      }
+    }
+    s += _atom(cx, cy, 13, '#34d399', 'N', '⁺');
+    return s;
+  }
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+    <text x="12" y="16" fill="#94a3b8" font-size="10">[NO₃]⁻</text>
+    ${nitrateForm(70, 82, 0)}
+    ${_arrow(140, 82)}
+    ${nitrateForm(210, 82, 1)}
+    ${_arrow(280, 82)}
+    ${nitrateForm(350, 82, 2)}
+    ${_equiv(420, 82)}
+    ${_dashed(480, 82, 480, 42)}
+    ${_dashed(480, 82, 444, 106)}
+    ${_dashed(480, 82, 516, 106)}
+    ${_atom(480, 42, 10, '#a78bfa', 'O', '')}
+    ${_atom(444, 106, 10, '#a78bfa', 'O', '')}
+    ${_atom(516, 106, 10, '#a78bfa', 'O', '')}
+    ${_atom(480, 82, 12, '#34d399', 'N', '')}
+    <text x="${W/2}" y="${H - 6}" fill="#94a3b8" font-size="10" text-anchor="middle">All 3 N–O bonds equal: 124 pm • Bond order = 1.33</text>
+  </svg>`;
+
+  return _resonanceCard('Nitrate Ion (NO₃⁻) — Resonance', '3 equivalent canonical forms', svg, '');
+}
+
+// ── Sulphite SO₃²⁻ ──────────────────────────────────────────────────────────
+function buildSulphiteResonanceSVG() {
+  const W = 520, H = 160;
+
+  function sulphiteForm(cx, cy, doubleIdx) {
+    const opos = [
+      { x: cx, y: cy - 40 },
+      { x: cx - 36, y: cy + 24 },
+      { x: cx + 36, y: cy + 24 }
+    ];
+    let s = '';
+    for (let i = 0; i < 3; i++) {
+      if (i === doubleIdx) {
+        s += _double(cx, cy, opos[i].x, opos[i].y, '#38bdf8');
+        s += _atom(opos[i].x, opos[i].y, 11, '#38bdf8', 'O', '');
+      } else {
+        s += _single(cx, cy, opos[i].x, opos[i].y, '#f87171');
+        s += _atom(opos[i].x, opos[i].y, 11, '#f87171', 'O', '⁻');
+      }
+    }
+    s += _atom(cx, cy, 13, '#fbbf24', 'S', '');
+    return s;
+  }
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+    <text x="12" y="16" fill="#94a3b8" font-size="10">[SO₃]²⁻</text>
+    ${sulphiteForm(70, 82, 0)}
+    ${_arrow(140, 82)}
+    ${sulphiteForm(210, 82, 1)}
+    ${_arrow(280, 82)}
+    ${sulphiteForm(350, 82, 2)}
+    ${_equiv(420, 82)}
+    ${_dashed(480, 82, 480, 42)}
+    ${_dashed(480, 82, 444, 106)}
+    ${_dashed(480, 82, 516, 106)}
+    ${_atom(480, 42, 10, '#a78bfa', 'O', '')}
+    ${_atom(444, 106, 10, '#a78bfa', 'O', '')}
+    ${_atom(516, 106, 10, '#a78bfa', 'O', '')}
+    ${_atom(480, 82, 12, '#fbbf24', 'S', '')}
+    <text x="${W/2}" y="${H - 6}" fill="#94a3b8" font-size="10" text-anchor="middle">All 3 S–O bonds equal • Bond order = 1.33 • Trigonal pyramidal (lone pair on S)</text>
+  </svg>`;
+
+  return _resonanceCard('Sulphite Ion (SO₃²⁻) — Resonance', '3 equivalent canonical forms', svg, '');
+}
+
+// ── SO₂ ──────────────────────────────────────────────────────────────────────
+function buildSO2ResonanceSVG() {
+  const W = 400, H = 140;
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+    <text x="12" y="16" fill="#94a3b8" font-size="10">SO₂</text>
+    <!-- Form 1: S=O (left) and S-O⁻ (right), S has +1 -->
+    ${_double(60, 65, 20, 105, '#38bdf8')}
+    ${_single(60, 65, 100, 105, '#f87171')}
+    ${_atom(20, 105, 12, '#38bdf8', 'O', '')}
+    ${_atom(100, 105, 12, '#f87171', 'O', '⁻')}
+    ${_atom(60, 65, 14, '#fbbf24', 'S', '⁺')}
+    <!-- lone pair dots on S -->
+    <text x="60" y="46" fill="#94a3b8" font-size="10" text-anchor="middle">••</text>
+    ${_arrow(150, 85)}
+    <!-- Form 2: S-O⁻ (left) and S=O (right), S has +1 -->
+    ${_single(240, 65, 200, 105, '#f87171')}
+    ${_double(240, 65, 280, 105, '#38bdf8')}
+    ${_atom(200, 105, 12, '#f87171', 'O', '⁻')}
+    ${_atom(280, 105, 12, '#38bdf8', 'O', '')}
+    ${_atom(240, 65, 14, '#fbbf24', 'S', '⁺')}
+    <text x="240" y="46" fill="#94a3b8" font-size="10" text-anchor="middle">••</text>
+    ${_equiv(330, 85)}
+    <!-- Hybrid -->
+    ${_dashed(370, 65, 345, 105, '#a78bfa')}
+    ${_dashed(370, 65, 395, 105, '#a78bfa')}
+    ${_atom(345, 105, 10, '#a78bfa', 'O', '')}
+    ${_atom(395, 105, 10, '#a78bfa', 'O', '')}
+    ${_atom(370, 65, 12, '#fbbf24', 'S', '')}
+    <text x="${W/2}" y="${H - 6}" fill="#94a3b8" font-size="10" text-anchor="middle">S–O bond order = 1.5 • Bent shape (119.5°) • sp² hybridised</text>
+  </svg>`;
+
+  return _resonanceCard('Sulfur Dioxide (SO₂) — Resonance', '2 canonical forms • Lone pair on S', svg, '');
+}
+
+// ── Nitrite NO₂⁻ ─────────────────────────────────────────────────────────────
+function buildNitriteResonanceSVG() {
+  const W = 400, H = 140;
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+    <text x="12" y="16" fill="#94a3b8" font-size="10">[NO₂]⁻</text>
+    <!-- Form 1: N=O (left) and N-O⁻ (right) -->
+    ${_double(60, 65, 20, 105, '#38bdf8')}
+    ${_single(60, 65, 100, 105, '#f87171')}
+    ${_atom(20, 105, 12, '#38bdf8', 'O', '')}
+    ${_atom(100, 105, 12, '#f87171', 'O', '⁻')}
+    ${_atom(60, 65, 14, '#34d399', 'N', '')}
+    <text x="60" y="46" fill="#94a3b8" font-size="10" text-anchor="middle">••</text>
+    ${_arrow(150, 85)}
+    <!-- Form 2: N-O⁻ (left) and N=O (right) -->
+    ${_single(240, 65, 200, 105, '#f87171')}
+    ${_double(240, 65, 280, 105, '#38bdf8')}
+    ${_atom(200, 105, 12, '#f87171', 'O', '⁻')}
+    ${_atom(280, 105, 12, '#38bdf8', 'O', '')}
+    ${_atom(240, 65, 14, '#34d399', 'N', '')}
+    <text x="240" y="46" fill="#94a3b8" font-size="10" text-anchor="middle">••</text>
+    ${_equiv(330, 85)}
+    <!-- Hybrid -->
+    ${_dashed(370, 65, 345, 105, '#a78bfa')}
+    ${_dashed(370, 65, 395, 105, '#a78bfa')}
+    ${_atom(345, 105, 10, '#a78bfa', 'O', '')}
+    ${_atom(395, 105, 10, '#a78bfa', 'O', '')}
+    ${_atom(370, 65, 12, '#34d399', 'N', '')}
+    <text x="${W/2}" y="${H - 6}" fill="#94a3b8" font-size="10" text-anchor="middle">Both N–O bonds equal: 124 pm • Bond order = 1.5 • Bent shape</text>
+  </svg>`;
+
+  return _resonanceCard('Nitrite Ion (NO₂⁻) — Resonance', '2 equivalent canonical forms', svg, '');
+}
+
+// ── Acetate CH₃COO⁻ ─────────────────────────────────────────────────────────
+function buildAcetateResonanceSVG() {
+  const W = 420, H = 150;
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+    <text x="12" y="16" fill="#94a3b8" font-size="10">[CH₃COO]⁻</text>
+    <!-- Form 1: C=O top, C-O⁻ bottom -->
+    <text x="20" y="75" fill="#94a3b8" font-size="10" text-anchor="middle">CH₃</text>
+    ${_single(34, 72, 65, 72, '#94a3b8')}
+    ${_double(65, 72, 100, 42, '#38bdf8')}
+    ${_single(65, 72, 100, 102, '#f87171')}
+    ${_atom(65, 72, 12, '#818cf8', 'C', '')}
+    ${_atom(100, 42, 11, '#38bdf8', 'O', '')}
+    ${_atom(100, 102, 11, '#f87171', 'O', '⁻')}
+    ${_arrow(155, 75)}
+    <!-- Form 2: C-O⁻ top, C=O bottom -->
+    <text x="190" y="75" fill="#94a3b8" font-size="10" text-anchor="middle">CH₃</text>
+    ${_single(204, 72, 235, 72, '#94a3b8')}
+    ${_single(235, 72, 270, 42, '#f87171')}
+    ${_double(235, 72, 270, 102, '#38bdf8')}
+    ${_atom(235, 72, 12, '#818cf8', 'C', '')}
+    ${_atom(270, 42, 11, '#f87171', 'O', '⁻')}
+    ${_atom(270, 102, 11, '#38bdf8', 'O', '')}
+    ${_equiv(320, 75)}
+    <!-- Hybrid -->
+    <text x="340" y="75" fill="#94a3b8" font-size="10" text-anchor="middle">CH₃</text>
+    ${_single(354, 72, 375, 72, '#94a3b8')}
+    ${_dashed(375, 72, 405, 42, '#a78bfa')}
+    ${_dashed(375, 72, 405, 102, '#a78bfa')}
+    ${_atom(375, 72, 11, '#818cf8', 'C', '')}
+    ${_atom(405, 42, 10, '#a78bfa', 'O', '')}
+    ${_atom(405, 102, 10, '#a78bfa', 'O', '')}
+    <text x="${W/2}" y="${H - 6}" fill="#94a3b8" font-size="10" text-anchor="middle">Both C–O bonds equal: 127 pm • Bond order = 1.5</text>
+  </svg>`;
+
+  return _resonanceCard('Acetate Ion (CH₃COO⁻) — Resonance', '2 equivalent canonical forms', svg, '');
+}
+
+// ── Perchlorate ClO₄⁻ ───────────────────────────────────────────────────────
+function buildPerchlorateResonanceSVG() {
+  const W = 480, H = 160;
+
+  function perchlorateForm(cx, cy, doubleIdx) {
+    // 4 oxygens tetrahedral (shown as 2D cross)
+    const opos = [
+      { x: cx, y: cy - 38 },        // top
+      { x: cx - 38, y: cy },        // left
+      { x: cx + 38, y: cy },        // right
+      { x: cx, y: cy + 38 }          // bottom
+    ];
+    let s = '';
+    for (let i = 0; i < 4; i++) {
+      if (i === doubleIdx) {
+        s += _double(cx, cy, opos[i].x, opos[i].y, '#38bdf8');
+        s += _atom(opos[i].x, opos[i].y, 10, '#38bdf8', 'O', '');
+      } else {
+        s += _single(cx, cy, opos[i].x, opos[i].y, '#f87171');
+        s += _atom(opos[i].x, opos[i].y, 10, '#f87171', 'O', '⁻');
+      }
+    }
+    s += _atom(cx, cy, 12, '#34d399', 'Cl', '⁺');
+    return s;
+  }
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${W}" height="${H}" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+    <text x="12" y="16" fill="#94a3b8" font-size="10">[ClO₄]⁻</text>
+    ${perchlorateForm(60, 80, 0)}
+    ${_arrow(118, 80)}
+    ${perchlorateForm(170, 80, 1)}
+    ${_arrow(228, 80)}
+    ${perchlorateForm(280, 80, 2)}
+    ${_arrow(338, 80)}
+    ${perchlorateForm(390, 80, 3)}
+    <!-- Hybrid note -->
+    <text x="${W/2}" y="${H - 6}" fill="#94a3b8" font-size="10" text-anchor="middle">4 equivalent resonating structures • Cl–O bond order = 1.25 • Tetrahedral</text>
+  </svg>`;
+
+  return _resonanceCard('Perchlorate Ion (ClO₄⁻) — Resonance', '4 equivalent canonical forms', svg, '');
 }
 
 /**

@@ -169,8 +169,8 @@ class PDFParser:
 
             genai.configure(api_key=api_key)
 
-            # Use gemini-1.5-flash for vision — fast, cheap, supports images
-            vision_model_name = os.getenv("GEMINI_VISION_MODEL", "gemini-1.5-flash")
+            # Use gemini-3.6-flash for vision — supports multimodal images & reactions
+            vision_model_name = os.getenv("GEMINI_VISION_MODEL", "gemini-3.6-flash")
             self._vision_model = genai.GenerativeModel(vision_model_name)
             logger.info("Gemini Vision model initialised: %s", vision_model_name)
             return self._vision_model
@@ -187,6 +187,8 @@ class PDFParser:
     ) -> List[str]:
         """
         Extract images from a PDF page and describe them using Gemini Vision.
+        Applies smart filtering to skip full-page backgrounds, header banners,
+        and decorative watermarks so only real chemistry diagrams are analyzed.
 
         Returns a list of formatted image description strings.
         """
@@ -200,11 +202,12 @@ class PDFParser:
         if not image_list:
             return descriptions
 
-        # Limit to avoid API overuse
-        image_list = image_list[:_MAX_IMAGES_PER_PAGE]
         processed = 0
 
         for img_info in image_list:
+            if processed >= _MAX_IMAGES_PER_PAGE:
+                break
+
             try:
                 xref = img_info[0]
                 base_image = doc.extract_image(xref)
@@ -214,8 +217,20 @@ class PDFParser:
                 width = base_image.get("width", 0)
                 height = base_image.get("height", 0)
 
-                # Skip tiny images (icons, bullets, decorative elements)
-                if width < _MIN_IMAGE_WIDTH or height < _MIN_IMAGE_HEIGHT:
+                # Skip full-page background templates
+                if width > 1200 and height > 1500:
+                    continue
+
+                # Skip narrow horizontal banners/dividers
+                if width / max(height, 1) > 6:
+                    continue
+
+                # Skip square logo watermarks
+                if width < 500 and height < 500 and abs(width - height) < 30:
+                    continue
+
+                # Skip tiny images (icons, bullets)
+                if width < 120 or height < 70:
                     continue
 
                 image_bytes = base_image["image"]
@@ -254,42 +269,62 @@ class PDFParser:
     ) -> Optional[str]:
         """
         Send a single image to Gemini Vision and get a chemistry-focused description.
+        Includes exponential back-off retry for rate limit (429) errors.
 
         Returns the description string, or None on failure.
         """
+        import time
+        import re
+        import PIL.Image
+
         model = self._get_vision_model()
         if model is None:
             return None
 
+        # Convert bytes to PIL Image
         try:
-            import PIL.Image
-
-            # Convert bytes to PIL Image
             image = PIL.Image.open(io.BytesIO(image_bytes))
-
-            # Convert CMYK or palette images to RGB for the API
             if image.mode not in ("RGB", "RGBA", "L"):
                 image = image.convert("RGB")
-
-            response = model.generate_content(
-                [_VISION_PROMPT, image],
-                generation_config={
-                    "temperature": 0.1,
-                    "max_output_tokens": 1024,
-                },
-            )
-
-            if response and response.text:
-                description = response.text.strip()
-                # Only keep descriptions that have meaningful chemistry content
-                if len(description) > 20:
-                    return description
-
         except Exception as exc:
-            logger.debug(
-                "Vision API failed for page %d, image %d: %s",
-                page_number, image_index, exc
-            )
+            logger.debug("Failed to decode image bytes on page %d: %s", page_number, exc)
+            return None
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = model.generate_content(
+                    [_VISION_PROMPT, image],
+                    generation_config={
+                        "temperature": 0.1,
+                        "max_output_tokens": 1024,
+                    },
+                )
+
+                if response and response.text:
+                    description = response.text.strip()
+                    if len(description) > 20:
+                        return description
+                return None
+
+            except Exception as exc:
+                err_str = str(exc)
+                if ("429" in err_str or "ResourceExhausted" in err_str) and attempt < max_retries - 1:
+                    delay_match = re.search(r"retry in (\d+(?:\.\d+)?)s", err_str, re.IGNORECASE)
+                    retry_delay = float(delay_match.group(1)) if delay_match else (15.0 * (attempt + 1))
+                    logger.warning(
+                        "Gemini Vision 429 rate limit reached for page %d. Backing off for %.1f seconds...",
+                        page_number,
+                        retry_delay,
+                    )
+                    time.sleep(retry_delay + 2.0)
+                    continue
+
+                logger.debug(
+                    "Vision API failed for page %d, image %d: %s",
+                    page_number, image_index, exc
+                )
+                return None
 
         return None
 
