@@ -126,6 +126,20 @@ async def ask_question(request: AskRequest) -> AskResponse:
             {"equation": eq.equation, "label": eq.label}
             for eq in (llm_response.equations or [])
         ],
+        structures=[
+            {
+                "molecule": s.molecule,
+                "central_atom": s.central_atom,
+                "hybridisation": s.hybridisation,
+                "geometry": s.geometry,
+                "bond_angles": s.bond_angles,
+                "steric_number": s.steric_number,
+                "lone_pairs": s.lone_pairs,
+                "bond_pairs": s.bond_pairs,
+                "diagram_ascii": s.diagram_ascii,
+            }
+            for s in (llm_response.structures or [])
+        ],
         sources=sources,
         related_topics=llm_response.related_topics,
         session_id=request.session_id,

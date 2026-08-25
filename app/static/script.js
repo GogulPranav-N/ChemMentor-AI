@@ -377,7 +377,13 @@ async function handleAsk() {
 
     removeSkeleton(skeletonId);
     state.lastSources = data.sources || [];
-    appendAssistantMessage(data.answer, data.sources || [], data.related_topics || [], data.equations || []);
+    appendAssistantMessage(
+      data.answer,
+      data.sources || [],
+      data.related_topics || [],
+      data.equations || [],
+      data.structures || []
+    );
     setIndicator('ready');
 
   } catch (err) {
@@ -421,26 +427,133 @@ function appendSkeleton() {
 }
 
 function removeSkeleton(id) {
-  document.getElementById(id)?.remove();
+  const el = document.getElementById(id);
+  if (el) el.remove();
 }
 
 /**
- * Render the assistant's answer with source chips, equation cards, and related topic chips.
+ * Appends an assistant response bubble with answer, reactions, structures, sources, and topics.
  * @param {string} answer
  * @param {Array} sources
  * @param {Array<string>} topics
  * @param {Array<{equation:string, label:string}>} equations
+ * @param {Array} structures
  */
-function appendAssistantMessage(answer, sources, topics, equations = []) {
+function appendAssistantMessage(answer, sources, topics, equations = [], structures = []) {
   const isFallback = answer.toLowerCase().includes('not present in the provided chapter');
 
   const div = document.createElement('div');
   div.className = `message message--assistant${isFallback ? ' message--fallback' : ''}`;
 
-  // ── Answer bubble
-  const bubble = document.createElement('div');
-  bubble.className = 'message__bubble';
-  bubble.innerHTML = formatAnswer(answer);
+  // ── Auto-synthesize MO structure cards if not provided by LLM
+  if ((!structures || structures.length === 0) && !isFallback) {
+    const hasMO = /molecular orbital|mo theory|energy level diagram|energy level order|orbital mixing|homonuclear|heteronuclear/i.test(answer) ||
+                  /bond order|paramagnetic|diamagnetic/i.test(answer);
+    if (hasMO) {
+      const moCards = [];
+      if (/\bO_?2\b|oxygen/i.test(answer)) {
+        moCards.push({
+          molecule: 'O_{2}',
+          geometry: 'Linear (MO Theory: > 14e⁻, No sp-mixing shift)',
+          bond_angles: 'Bond Order = 2.0 (Paramagnetic: 2 unpaired e⁻ in π*2p)',
+          central_atom: 'O-O',
+          diagram_ascii: 'MO_DIAGRAM:O2'
+        });
+      }
+      if (/\bN_?2\b|nitrogen/i.test(answer)) {
+        moCards.push({
+          molecule: 'N_{2}',
+          geometry: 'Linear (MO Theory: ≤ 14e⁻, With sp-mixing shift)',
+          bond_angles: 'Bond Order = 3.0 (Diamagnetic: 0 unpaired e⁻)',
+          central_atom: 'N-N',
+          diagram_ascii: 'MO_DIAGRAM:N2'
+        });
+      }
+      if (/\bF_?2\b|fluorine/i.test(answer)) {
+        moCards.push({
+          molecule: 'F_{2}',
+          geometry: 'Linear (MO Theory: > 14e⁻)',
+          bond_angles: 'Bond Order = 1.0 (Diamagnetic)',
+          central_atom: 'F-F',
+          diagram_ascii: 'MO_DIAGRAM:F2'
+        });
+      }
+      if (/\b(C_?2|B_?2|Be_?2|Li_?2|H_?2|He_?2|CO|NO)\b/i.test(answer)) {
+        const mMatch = answer.match(/\b(C_?2|B_?2|Be_?2|Li_?2|H_?2|He_?2|CO|NO)\b/i);
+        if (mMatch && !moCards.some(m => m.molecule.includes(mMatch[1]))) {
+          moCards.push({
+            molecule: mMatch[1].replace(/_?2/, '_{2}'),
+            geometry: 'Linear (MO Theory)',
+            bond_angles: 'Molecular Orbital Energy Configuration',
+            central_atom: mMatch[1],
+            diagram_ascii: `MO_DIAGRAM:${mMatch[1]}`
+          });
+        }
+      }
+      if (moCards.length > 0) {
+        structures = moCards;
+      }
+    }
+  }
+
+  // ── Answer bubble HTML
+  const bubbleHtml = `<div class="message__bubble">${formatAnswer(answer)}</div>`;
+
+  // ── Molecular Geometry & Hybridisation Cards
+  let structuresHtml = '';
+  if (structures.length > 0 && !isFallback) {
+    const cards = structures.map((st) => {
+      const molRendered = renderChemEquation(st.molecule || '');
+      const hybrid = st.hybridisation
+        ? `<span class="structure-badge structure-badge--hybrid"><span class="badge-icon">⚡</span> Hybridisation: <strong>${escapeHtml(st.hybridisation)}</strong></span>`
+        : '';
+      const geom = st.geometry
+        ? `<span class="structure-badge structure-badge--geom"><span class="badge-icon">📐</span> Geometry: <strong>${escapeHtml(st.geometry)}</strong></span>`
+        : '';
+      const angle = st.bond_angles
+        ? `<span class="structure-badge structure-badge--angle"><span class="badge-icon">∠</span> Bond Angle: <strong>${escapeHtml(st.bond_angles)}</strong></span>`
+        : '';
+      const central = st.central_atom
+        ? `<div class="spec-item"><span class="spec-label">Central Atom</span><span class="spec-value">${escapeHtml(st.central_atom)}</span></div>`
+        : '';
+      const steric = st.steric_number != null
+        ? `<div class="spec-item"><span class="spec-label">Steric Number</span><span class="spec-value">${st.steric_number}</span></div>`
+        : '';
+      const bp = st.bond_pairs != null
+        ? `<div class="spec-item"><span class="spec-label">Bond Pairs (σ)</span><span class="spec-value">${st.bond_pairs}</span></div>`
+        : '';
+      const lp = st.lone_pairs != null
+        ? `<div class="spec-item"><span class="spec-label">Lone Pairs</span><span class="spec-value">${st.lone_pairs}</span></div>`
+        : '';
+
+      let diagramHtml = buildStructureDiagram(st);
+
+      return `
+        <div class="molecular-structure-card">
+          <div class="structure-card-header">
+            <div class="structure-mol-title">${molRendered}</div>
+            <div class="structure-badges-row">
+              ${hybrid}
+              ${geom}
+              ${angle}
+            </div>
+          </div>
+          <div class="structure-specs-grid">
+            ${central}
+            ${steric}
+            ${bp}
+            ${lp}
+          </div>
+          ${diagramHtml}
+        </div>`;
+    }).join('');
+
+    structuresHtml = `
+      <div class="structures-section">
+        <p class="chips-label">🧬 Molecular Geometry & Hybridisation</p>
+        <div class="structures-grid">${cards}</div>
+      </div>`;
+  }
 
   // ── Equation cards (only show actual reactions with arrows)
   let equationsHtml = '';
@@ -466,7 +579,7 @@ function appendAssistantMessage(answer, sources, topics, equations = []) {
     }).join('');
     equationsHtml = `
       <div class="equations-section">
-        <p class="chips-label">⚗️ Key Reactions</p>
+        <p class="chips-label">⚗️ Key Chemical Reactions</p>
         <div class="equations-grid">${cards}</div>
       </div>`;
   }
@@ -499,8 +612,7 @@ function appendAssistantMessage(answer, sources, topics, equations = []) {
       </div>`;
   }
 
-  div.appendChild(bubble);
-  div.innerHTML += equationsHtml + sourcesHtml + topicsHtml;
+  div.innerHTML = bubbleHtml + structuresHtml + equationsHtml + sourcesHtml + topicsHtml;
 
   dom.chatContainer().appendChild(div);
 
@@ -666,16 +778,56 @@ function escapeHtml(str) {
 }
 
 /**
- * Renders a chemistry equation string via KaTeX (with mhchem support) or styled fallback.
- * @param {string} eq - The equation string (e.g. "2H_{2} + O_{2} → 2H_{2}O" or "\ce{N2 + 3H2 <=> 2NH3}")
+ * Renders a chemistry equation or molecular orbital expression via KaTeX or styled fallback.
+ * Handles \sigma, \pi, orbitals (\sigma 1s < \sigma^*1s), chemical reactions, and formulas.
+ * @param {string} eq - The equation string
  * @returns {string} HTML string with rendered equation
  */
 function renderChemEquation(eq) {
   if (!eq) return '';
   const trimmed = String(eq).trim();
 
+  // Normalize LaTeX expressions for orbitals, asterisks, subscripts, and arrows
+  let normalized = trimmed
+    // Fix \+sigma^* or \+pi^* -> \sigma^{*}, \pi^{*}
+    .replace(/\\+sigma\s*\^\s*\{\s*\*\s*\}/g, '\\sigma^{*}')
+    .replace(/\\+sigma\s*\^\s*\*/g, '\\sigma^{*}')
+    .replace(/\\+sigma\s*\*/g, '\\sigma^{*}')
+    .replace(/\\+sigma\s*/g, '\\sigma ')
+    .replace(/\\+pi\s*\^\s*\{\s*\*\s*\}/g, '\\pi^{*}')
+    .replace(/\\+pi\s*\^\s*\*/g, '\\pi^{*}')
+    .replace(/\\+pi\s*\*/g, '\\pi^{*}')
+    .replace(/\\+pi\s*/g, '\\pi ')
+    // Fix subscripts like _x, _y, _z, _g, _u -> _{x}, _{y}, etc.
+    .replace(/_([xyzgu0-9])/g, '_{$1}')
+    // Fix Unicode Greek/math to LaTeX commands for KaTeX math mode
+    .replace(/σ\*/g, '\\sigma^{*}')
+    .replace(/π\*/g, '\\pi^{*}')
+    .replace(/σ/g, '\\sigma ')
+    .replace(/π/g, '\\pi ')
+    .replace(/⇌/g, '\\rightleftharpoons ')
+    .replace(/⟶/g, '\\longrightarrow ')
+    .replace(/→/g, '\\rightarrow ')
+    .replace(/←/g, '\\leftarrow ')
+    .replace(/Δ/g, '\\Delta ')
+    .replace(/∝/g, '\\propto ');
+
   if (typeof katex !== 'undefined') {
-    // 1. If already wrapped in \ce{...}, render directly
+    // 1. If contains \sigma, \pi, or comparison operators (<, >, =), render directly with KaTeX Math mode
+    const isOrbitalOrMath = /\\sigma|\\pi|<|>|=|\+|-|\\Delta|\\frac|\^|\*/.test(normalized) &&
+                           !/->|<=>|\\rightleftharpoons|\\rightarrow/.test(normalized);
+
+    if (isOrbitalOrMath) {
+      try {
+        return katex.renderToString(normalized, {
+          throwOnError: false,
+          displayMode: false,
+          trust: true,
+        });
+      } catch (e) { /* fallback below */ }
+    }
+
+    // 2. If already wrapped in \ce{...}, render directly with mhchem
     if (trimmed.startsWith('\\ce{') && trimmed.endsWith('}')) {
       try {
         return katex.renderToString(trimmed, {
@@ -686,62 +838,65 @@ function renderChemEquation(eq) {
       } catch (e) { /* fallback below */ }
     }
 
-    // 2. Try wrapping in \ce{...} for mhchem
-    try {
-      let mhchemInput = trimmed
-        .replace(/\\rightarrow/g, '->')
-        .replace(/\\rightleftharpoons/g, '<=>')
-        .replace(/\\longrightarrow/g, '->')
-        .replace(/\\leftarrow/g, '<-')
-        .replace(/\\Delta/g, '\\Delta ')
-        .replace(/→/g, '->')
-        .replace(/⇌/g, '<=>')
-        .replace(/⟶/g, '->')
-        .replace(/←/g, '<-')
-        .replace(/_{([0-9a-zA-Z]+)}/g, '$1')
-        .replace(/\^{([0-9a-zA-Z+-]+)}/g, '^$1');
+    // 3. Try wrapping in \ce{...} for mhchem if it looks like a chemical formula/reaction
+    if (!/\\sigma|\\pi|<|>/.test(trimmed)) {
+      try {
+        let mhchemInput = trimmed
+          .replace(/\\rightarrow/g, '->')
+          .replace(/\\rightleftharpoons/g, '<=>')
+          .replace(/\\longrightarrow/g, '->')
+          .replace(/\\leftarrow/g, '<-')
+          .replace(/\\Delta/g, '\\Delta ')
+          .replace(/→/g, '->')
+          .replace(/⇌/g, '<=>')
+          .replace(/⟶/g, '->')
+          .replace(/←/g, '<-')
+          .replace(/_{([0-9a-zA-Z]+)}/g, '$1')
+          .replace(/\^{([0-9a-zA-Z+-]+)}/g, '^$1');
 
-      return katex.renderToString(`\\ce{${mhchemInput}}`, {
-        throwOnError: false,
-        displayMode: true,
-        trust: true,
-      });
-    } catch (e) {
-      // mhchem failed, try standard LaTeX below
+        return katex.renderToString(`\\ce{${mhchemInput}}`, {
+          throwOnError: false,
+          displayMode: true,
+          trust: true,
+        });
+      } catch (e) { /* fallback below */ }
     }
 
-    // 3. Fallback to standard LaTeX math rendering
+    // 4. Try standard KaTeX math rendering
     try {
-      let latex = trimmed
-        .replace(/⇌/g, '\\rightleftharpoons ')
-        .replace(/⟶/g, '\\longrightarrow ')
-        .replace(/→/g, '\\rightarrow ')
-        .replace(/←/g, '\\leftarrow ')
-        .replace(/Δ/g, '\\Delta ')
-        .replace(/∝/g, '\\propto ');
-
-      return katex.renderToString(latex, {
+      return katex.renderToString(normalized, {
         throwOnError: false,
-        displayMode: true,
+        displayMode: false,
         trust: true,
       });
-    } catch (e) {
-      // KaTeX failed — fall through to styled HTML
-    }
+    } catch (e) { /* fallback to styled HTML below */ }
   }
 
   return renderChemEquationFallback(trimmed);
 }
 
 /**
- * Fallback renderer when KaTeX is unavailable.
- * Converts _{} to <sub> and ^{} to <sup> tags.
+ * Fallback renderer when KaTeX is unavailable or fails.
+ * Converts LaTeX symbols (\sigma, \pi, \Delta), _{} to <sub>, and ^{} to <sup> tags.
  */
 function renderChemEquationFallback(eq) {
   return escapeHtml(eq)
     .replace(/\\ce\{([^}]+)\}/g, '$1')
+    .replace(/\\+sigma\s*\^\s*\{\s*\*\s*\}/g, 'σ*')
+    .replace(/\\+sigma\s*\^\s*\*/g, 'σ*')
+    .replace(/\\+sigma\s*\*/g, 'σ*')
+    .replace(/\\+sigma\s*/g, 'σ ')
+    .replace(/\\+pi\s*\^\s*\{\s*\*\s*\}/g, 'π*')
+    .replace(/\\+pi\s*\^\s*\*/g, 'π*')
+    .replace(/\\+pi\s*\*/g, 'π*')
+    .replace(/\\+pi\s*/g, 'π ')
+    .replace(/\\+Delta\s*/g, 'Δ ')
+    .replace(/\\+alpha\s*/g, 'α ')
+    .replace(/\\+beta\s*/g, 'β ')
     .replace(/_{([^}]+)}/g, '<sub>$1</sub>')
+    .replace(/_([xyzgu0-9])/g, '<sub>$1</sub>')
     .replace(/\^{([^}]+)}/g, '<sup>$1</sup>')
+    .replace(/\^([0-9*+-])/g, '<sup>$1</sup>')
     .replace(/→/g, '<span class="chem-arrow">→</span>')
     .replace(/⇌/g, '<span class="chem-arrow">⇌</span>')
     .replace(/⟶/g, '<span class="chem-arrow">⟶</span>')
@@ -775,9 +930,15 @@ function sanitizeLatexFromText(text) {
     .replace(/\\rightleftharpoons/g, '⇌')
     // \Delta → Δ
     .replace(/\\Delta/g, 'Δ')
-    // \sigma → σ, \pi → π
-    .replace(/\\sigma/g, 'σ')
-    .replace(/\\pi/g, 'π')
+    // \\sigma^{*} → σ*, \\sigma^* → σ*, \\sigma* → σ*, \\sigma → σ
+    .replace(/\\+sigma\s*\^\s*\{\s*\*\s*\}/g, 'σ*')
+    .replace(/\\+sigma\s*\^\s*\*/g, 'σ*')
+    .replace(/\\+sigma\s*\*/g, 'σ*')
+    .replace(/\\+sigma/g, 'σ')
+    .replace(/\\+pi\s*\^\s*\{\s*\*\s*\}/g, 'π*')
+    .replace(/\\+pi\s*\^\s*\*/g, 'π*')
+    .replace(/\\+pi\s*\*/g, 'π*')
+    .replace(/\\+pi/g, 'π')
     // Clean up any remaining backslashes before common words
     .replace(/\\([a-zA-Z]+)\{([^}]*)\}/g, '$2')
     // Remove stray backslashes
@@ -785,42 +946,142 @@ function sanitizeLatexFromText(text) {
 }
 
 /**
+ * Build a visual diagram for a molecular structure card.
+ * For orbital/MO diagrams, renders a visual HTML energy level diagram.
+ * For regular Lewis structures, renders ASCII art.
+ */
+function buildStructureDiagram(st) {
+  const mol = st.molecule || '';
+  const ascii = st.diagram_ascii || '';
+
+  // Check if this is an MO / orbital energy level diagram
+  const isMODiagram = /MO_DIAGRAM|[σπ]\*?\s*\d[spdf]/i.test(ascii) ||
+                      /sigma|pi|bonding|antibonding|energy|homonuclear/i.test(ascii) ||
+                      /O_?2|N_?2|F_?2|C_?2|B_?2|Be_?2|Li_?2|H_?2|He_?2|CO|NO/i.test(mol);
+
+  if (isMODiagram) {
+    return buildMOEnergyDiagram(st);
+  }
+
+  if (ascii.trim()) {
+    return `
+      <div class="structure-diagram-box">
+        <span class="structure-diagram-label">🧬 Lewis / 2D Spatial Structure</span>
+        <pre class="structure-diagram-pre">${escapeHtml(ascii)}</pre>
+      </div>`;
+  }
+  return '';
+}
+
+/**
+ * Build a visual MO Energy Level Diagram using HTML/CSS.
+ * Creates colored orbital level bars with electron fill indicators.
+ */
+function buildMOEnergyDiagram(st) {
+  // Parse molecule to determine electron count and orbital configuration
+  const molecule = (st.molecule || '').replace(/[_{}]/g, '');
+
+  // Define standard MO levels (low energy → high energy)
+  // For ≤14e- molecules (Li2, Be2, B2, C2, N2): π before σ2p due to sp-mixing
+  // For >14e- molecules (O2, F2, Ne2): σ2p before π (no sp-mixing inversion)
+  const isOver14 = /O[_]?2|F[_]?2|Ne[_]?2/i.test(molecule);
+
+  const moLevelsStandard = [
+    { label: 'σ 1s', type: 'bond', degenerate: false },
+    { label: 'σ* 1s', type: 'antibond', degenerate: false },
+    { label: 'σ 2s', type: 'bond', degenerate: false },
+    { label: 'σ* 2s', type: 'antibond', degenerate: false },
+    { label: 'π 2p', type: 'bond', degenerate: true, sublabels: ['π 2pₓ', 'π 2p_y'] },
+    { label: 'σ 2p_z', type: 'bond', degenerate: false },
+    { label: 'π* 2p', type: 'antibond', degenerate: true, sublabels: ['π* 2pₓ', 'π* 2p_y'] },
+    { label: 'σ* 2p_z', type: 'antibond', degenerate: false },
+  ];
+
+  const moLevelsOver14 = [
+    { label: 'σ 1s', type: 'bond', degenerate: false },
+    { label: 'σ* 1s', type: 'antibond', degenerate: false },
+    { label: 'σ 2s', type: 'bond', degenerate: false },
+    { label: 'σ* 2s', type: 'antibond', degenerate: false },
+    { label: 'σ 2p_z', type: 'bond', degenerate: false },
+    { label: 'π 2p', type: 'bond', degenerate: true, sublabels: ['π 2pₓ', 'π 2p_y'] },
+    { label: 'π* 2p', type: 'antibond', degenerate: true, sublabels: ['π* 2pₓ', 'π* 2p_y'] },
+    { label: 'σ* 2p_z', type: 'antibond', degenerate: false },
+  ];
+
+  const levels = isOver14 ? moLevelsOver14 : moLevelsStandard;
+
+  const rows = levels.map((level, idx) => {
+    const energyPct = Math.round(((idx + 1) / levels.length) * 100);
+    const typeClass = level.type === 'antibond' ? 'mo-level--antibond' : 'mo-level--bond';
+    const degClass = level.degenerate ? 'mo-level--degenerate' : '';
+
+    const labelHtml = level.degenerate
+      ? `<span class="mo-sublabels">${level.sublabels.map(s => `<span>${renderChemEquationFallback(s)}</span>`).join(' ')}</span>`
+      : `<span>${renderChemEquationFallback(level.label)}</span>`;
+
+    return `
+      <div class="mo-level ${typeClass} ${degClass}" style="--energy: ${energyPct}%">
+        <span class="mo-level-label">${labelHtml}</span>
+        <div class="mo-level-bar">
+          ${level.degenerate ? '<div class="mo-bar-segment"></div><div class="mo-bar-segment"></div>' : '<div class="mo-bar-segment"></div>'}
+        </div>
+        <span class="mo-level-type">${level.type === 'antibond' ? 'Antibonding (*)' : 'Bonding'}</span>
+      </div>`;
+  }).reverse().join('');
+
+  const mixingNote = isOver14
+    ? '<span class="mo-note-badge">⚡ > 14e⁻ System: σ 2p_z is lower in energy than π 2p (no sp-mixing shift)</span>'
+    : '<span class="mo-note-badge">⚡ ≤ 14e⁻ System: π 2p is lower in energy than σ 2p_z (due to sp-orbital mixing)</span>';
+
+  return `
+    <div class="structure-diagram-box mo-diagram-box">
+      <div class="mo-diagram-header">
+        <span class="structure-diagram-label">⚛️ Molecular Orbital Energy Level Diagram</span>
+        ${mixingNote}
+      </div>
+      <div class="mo-diagram">
+        <div class="mo-energy-axis">
+          <span class="mo-axis-label-top">↑ Energy</span>
+          <div class="mo-axis-line"></div>
+        </div>
+        <div class="mo-levels-container">
+          ${rows}
+        </div>
+      </div>
+      <div class="mo-legend">
+        <span class="mo-legend-item mo-legend--bond">● Bonding</span>
+        <span class="mo-legend-item mo-legend--antibond">● Antibonding (*)</span>
+        <span class="mo-legend-item mo-legend--degen">═ Degenerate Pair (π_x, π_y)</span>
+      </div>
+    </div>`;
+}
+
+/**
  * Format the answer text:
+ * - Markdown headers (###, ##, #)
  * - Full chemical reactions with arrows become standalone Reaction Box Overlays
- * - Molecular formulas without arrows become inline chemistry pills
+ * - Double dollar $$...$$ and Single dollar $...$ expressions become rendered chemistry pills
  * - Bold, line breaks, page citations, and fallback subscript/superscripts
  */
 function formatAnswer(text) {
-  // First, sanitize any LaTeX that appears OUTSIDE of $$ blocks
-  const parts = text.split(/(\$\$[^$]+?\$\$)/g);
-  const processed = parts.map((part) => {
-    if (part.startsWith('$$') && part.endsWith('$$')) {
-      return part; // keep equation blocks as-is
-    }
-    return sanitizeLatexFromText(part); // sanitize plain text parts
-  }).join('');
+  if (!text) return '';
 
-  let html = escapeHtml(processed);
+  // 1. Process headers first (###, ##, #)
+  let processed = text
+    .replace(/^### (.*?)$/gm, '<h4 class="answer-h4">$1</h4>')
+    .replace(/^## (.*?)$/gm, '<h3 class="answer-h3">$1</h3>')
+    .replace(/^# (.*?)$/gm, '<h2 class="answer-h2">$1</h2>');
 
   // Regex to detect if an equation contains a reaction arrow
   const reactionArrowRegex = /→|⇌|⟶|←|->|<=>|=>|\\rightarrow|\\rightleftharpoons|\\ce/;
 
-  // Render $$...$$ equation blocks
-  html = html.replace(/\$\$([^$]+?)\$\$/g, (_, eq) => {
-    // Unescape HTML entities back for KaTeX processing
-    const raw = eq
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#039;/g, "'")
-      .trim();
-
+  // 2. Render $$...$$ equation blocks
+  processed = processed.replace(/\$\$([\s\S]*?)\$\$/g, (_, eq) => {
+    const raw = eq.trim();
     const isReaction = reactionArrowRegex.test(raw);
     const rendered = renderChemEquation(raw);
 
     if (isReaction) {
-      // Dedicated Reaction Box Overlay
       const encodedRaw = encodeURIComponent(raw);
       return `
         <div class="reaction-box-overlay">
@@ -837,23 +1098,29 @@ function formatAnswer(text) {
           <div class="reaction-box-formula">${rendered}</div>
         </div>`;
     } else {
-      // Inline formula pill
       return `<span class="chem-equation-inline">${rendered}</span>`;
     }
   });
 
-  // Standard formatting
-  html = html
+  // 3. Render $...$ single dollar inline math / formulas (e.g. $\sigma_g(2p)$, $\pi 2p_x$)
+  processed = processed.replace(/\$([^\$\n]+?)\$/g, (_, math) => {
+    const raw = math.trim();
+    const rendered = renderChemEquation(raw);
+    return `<span class="chem-equation-inline">${rendered}</span>`;
+  });
+
+  // 4. Sanitize any residual LaTeX commands in plain text
+  processed = sanitizeLatexFromText(processed);
+
+  // 5. Standard markdown formatting
+  processed = processed
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br />')
-    .replace(/\(Page (\d+)\)/g, '<span style="color:var(--clr-primary-glow);font-weight:600">(Page $1)</span>');
-
-  // Handle _{} and ^{} in plain text (outside of KaTeX rendered blocks)
-  html = html
+    .replace(/\(Page (\d+)\)/g, '<span style="color:var(--clr-primary-glow);font-weight:600">(Page $1)</span>')
     .replace(/_{([^}]+)}/g, '<sub>$1</sub>')
     .replace(/\^{([^}]+)}/g, '<sup>$1</sup>');
 
-  return html;
+  return processed;
 }
 
 /**

@@ -88,6 +88,20 @@ class EquationItem(BaseModel):
     label: str = Field(default="", description="Short descriptive label for the equation.")
 
 
+class MolecularStructure(BaseModel):
+    """Molecular geometry, hybridisation, and bonding details."""
+
+    molecule: str = Field(..., description="Chemical formula, e.g. 'SF_{6}' or 'CH_{4}'.")
+    central_atom: str = Field(default="", description="Central atom symbol, e.g. 'S' or 'C'.")
+    hybridisation: str = Field(default="", description="Hybridisation state, e.g. 'sp³d²' or 'sp3'.")
+    geometry: str = Field(default="", description="VSEPR Molecular Shape / Geometry, e.g. 'Octahedral'.")
+    bond_angles: str = Field(default="", description="Bond angle(s), e.g. '90°' or '109.5°'.")
+    steric_number: Optional[int] = Field(default=None, description="Steric number (bond pairs + lone pairs).")
+    lone_pairs: Optional[int] = Field(default=None, description="Number of lone pairs on central atom.")
+    bond_pairs: Optional[int] = Field(default=None, description="Number of bond pairs / sigma bonds.")
+    diagram_ascii: Optional[str] = Field(default="", description="2D structural / Lewis diagram representation.")
+
+
 class AskResponse(BaseModel):
     """Structured response from the /ask endpoint."""
 
@@ -95,6 +109,10 @@ class AskResponse(BaseModel):
     equations: List[EquationItem] = Field(
         default_factory=list,
         description="Up to 6 key chemical equations/reactions from the answer.",
+    )
+    structures: List[MolecularStructure] = Field(
+        default_factory=list,
+        description="Molecular geometry and hybridisation details for discussed molecules.",
     )
     sources: List[SourceReference] = Field(
         default_factory=list,

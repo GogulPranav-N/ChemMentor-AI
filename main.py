@@ -169,10 +169,25 @@ app.mount(
 templates = Jinja2Templates(directory=str(_BASE / "app" / "templates"))
 
 
+@app.middleware("http")
+async def add_no_cache_headers(request: Request, call_next):
+    """Disable caching for static assets during local development."""
+    response = await call_next(request)
+    if request.url.path.startswith("/static"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 @app.get("/", include_in_schema=False)
 async def serve_ui(request: Request):
-    """Serve the single-page UI."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    """Serve the single-page UI with automatic cache-busting."""
+    import time
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "cache_buster": int(time.time())},
+    )
 
 
 # ── API Routers ───────────────────────────────────────────────────────────────

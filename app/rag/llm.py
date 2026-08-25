@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 import google.generativeai as genai
 from tenacity import (
@@ -39,11 +39,26 @@ class EquationItem:
 
 
 @dataclass
+class MolecularStructureItem:
+    """Molecular geometry, hybridisation, and bonding details."""
+    molecule: str
+    central_atom: str = ""
+    hybridisation: str = ""
+    geometry: str = ""
+    bond_angles: str = ""
+    steric_number: Optional[int] = None
+    lone_pairs: Optional[int] = None
+    bond_pairs: Optional[int] = None
+    diagram_ascii: str = ""
+
+
+@dataclass
 class LLMResponse:
     """Structured output from the Gemini LLM call."""
 
     answer: str
     equations: List[EquationItem] = field(default_factory=list)
+    structures: List[MolecularStructureItem] = field(default_factory=list)
     related_topics: List[str] = field(default_factory=list)
     raw_response: str = field(default="", repr=False)
 
@@ -146,21 +161,33 @@ class GeminiLLMClient:
         # Strip potential markdown fences
         clean = re.sub(r"```(?:json)?|```", "", raw_clean).strip()
 
-        # Try 1: Direct JSON load
-        try:
-            data = json.loads(clean)
-            return self._build_response_from_dict(data, raw)
-        except Exception:
-            pass
+        # Repair common JSON issues from LLM output:
+        # 1. Fix invalid escape sequences in diagram_ascii (e.g., \n inside strings that are literal)
+        # 2. Fix unescaped control characters
+        repaired = self._repair_json(clean)
+
+        # Try 1: Direct JSON load (with repaired string)
+        for attempt_str in [repaired, clean]:
+            try:
+                data = json.loads(attempt_str)
+                response = self._build_response_from_dict(data, raw)
+                # Clean any leaked JSON from the answer text
+                response.answer = self._clean_answer_text(response.answer)
+                return response
+            except Exception as e:
+                logger.debug("JSON parse attempt failed: %s", str(e)[:200])
 
         # Try 2: Extract JSON object block using regex
         try:
             match = re.search(r"(\{.*\})", clean, re.DOTALL)
             if match:
-                data = json.loads(match.group(1))
-                return self._build_response_from_dict(data, raw)
-        except Exception:
-            pass
+                extracted = self._repair_json(match.group(1))
+                data = json.loads(extracted)
+                response = self._build_response_from_dict(data, raw)
+                response.answer = self._clean_answer_text(response.answer)
+                return response
+        except Exception as e:
+            logger.debug("JSON extraction attempt failed: %s", str(e)[:200])
 
         # Try 3: Regex match for "answer" and "related_topics" key values
         # This handles partially broken JSON or truncation
@@ -180,6 +207,7 @@ class GeminiLLMClient:
                 topics = [str(item).strip() for item in items]
 
             if answer:
+                answer = self._clean_answer_text(answer)
                 return LLMResponse(
                     answer=answer,
                     related_topics=topics[:4],
@@ -197,12 +225,110 @@ class GeminiLLMClient:
             )
 
         # Fallback: return the clean string but log warning
-        logger.warning("Failed to parse Gemini JSON structure. Raw response: %s", raw)
+        logger.warning("Failed to parse Gemini JSON structure. Raw response (first 500 chars): %s", raw[:500])
+        # Last resort: try to extract just the answer value from the malformed JSON
+        answer = self._extract_incomplete_json_answer(clean)
+        if answer:
+            answer = self._clean_answer_text(answer)
+            return LLMResponse(
+                answer=answer,
+                related_topics=[],
+                raw_response=raw,
+            )
         return LLMResponse(
             answer=clean,
             related_topics=[],
             raw_response=raw,
         )
+
+    @staticmethod
+    def _repair_json(text: str) -> str:
+        """
+        Repair common JSON issues from LLM output.
+        - Fixes unescaped literal newlines/tabs inside string literals
+        - Fixes invalid single backslashes (e.g. \\sigma, \\pi, \\Delta) into valid escaped backslashes
+        """
+        valid_escapes = set("\"\\/bfnrtu")
+
+        def fix_string(s: str) -> str:
+            out = []
+            i = 0
+            n = len(s)
+            while i < n:
+                c = s[i]
+                if c == "\n":
+                    out.append("\\n")
+                    i += 1
+                elif c == "\r":
+                    out.append("\\r")
+                    i += 1
+                elif c == "\t":
+                    out.append("\\t")
+                    i += 1
+                elif c == "\\":
+                    if i + 1 < n:
+                        nxt = s[i + 1]
+                        if nxt in valid_escapes:
+                            out.append("\\" + nxt)
+                            i += 2
+                        else:
+                            out.append("\\\\" + nxt)
+                            i += 2
+                    else:
+                        out.append("\\\\")
+                        i += 1
+                else:
+                    out.append(c)
+                    i += 1
+            return "".join(out)
+
+        parts = []
+        in_str = False
+        cur = []
+        i = 0
+        n = len(text)
+        while i < n:
+            c = text[i]
+            if c == "\"" and (i == 0 or text[i - 1] != "\\"):
+                if in_str:
+                    parts.append("\"" + fix_string("".join(cur)) + "\"")
+                    cur = []
+                    in_str = False
+                else:
+                    parts.append("".join(cur))
+                    cur = []
+                    in_str = True
+                i += 1
+            else:
+                cur.append(c)
+                i += 1
+        if cur:
+            if in_str:
+                parts.append("\"" + fix_string("".join(cur)) + "\"")
+            else:
+                parts.append("".join(cur))
+
+        return "".join(parts)
+
+    @staticmethod
+    def _clean_answer_text(answer: str) -> str:
+        """
+        Remove any JSON-like fragments that leaked into the answer text.
+        The LLM sometimes embeds the JSON schema keys inside the answer field.
+        """
+        # If the answer ends with JSON-like content, strip it
+        # Look for patterns like: ", "equations": [...], "structures": [...], "related_topics": [...]
+        json_leak_patterns = [
+            r',\s*"equations"\s*:\s*\[.*$',
+            r',\s*"structures"\s*:\s*\[.*$',
+            r',\s*"related_topics"\s*:\s*\[.*$',
+            r'\}\s*$',  # trailing } from JSON envelope
+        ]
+        cleaned = answer
+        for pattern in json_leak_patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL)
+        
+        return cleaned.strip()
 
     def _build_response_from_dict(self, data: dict, raw: str) -> LLMResponse:
         answer = data.get("answer", "").strip() or _FALLBACK_ANSWER
@@ -231,9 +357,41 @@ class GeminiLLMClient:
         if not equations:
             equations = self._extract_reactions_from_answer(answer)
 
+        # Parse structures (molecular geometry & hybridisation)
+        raw_structures = data.get("structures", [])
+        structures: list[MolecularStructureItem] = []
+        if isinstance(raw_structures, list):
+            for item in raw_structures[:4]:
+                if isinstance(item, dict) and item.get("molecule"):
+                    try:
+                        sn = int(item["steric_number"]) if item.get("steric_number") is not None else None
+                    except (ValueError, TypeError):
+                        sn = None
+                    try:
+                        lp = int(item["lone_pairs"]) if item.get("lone_pairs") is not None else None
+                    except (ValueError, TypeError):
+                        lp = None
+                    try:
+                        bp = int(item["bond_pairs"]) if item.get("bond_pairs") is not None else None
+                    except (ValueError, TypeError):
+                        bp = None
+
+                    structures.append(MolecularStructureItem(
+                        molecule=str(item["molecule"]).strip(),
+                        central_atom=str(item.get("central_atom", "")).strip(),
+                        hybridisation=str(item.get("hybridisation", "")).strip(),
+                        geometry=str(item.get("geometry", "")).strip(),
+                        bond_angles=str(item.get("bond_angles", "")).strip(),
+                        steric_number=sn,
+                        lone_pairs=lp,
+                        bond_pairs=bp,
+                        diagram_ascii=str(item.get("diagram_ascii", "")).strip(),
+                    ))
+
         return LLMResponse(
             answer=answer,
             equations=equations,
+            structures=structures,
             related_topics=topics,
             raw_response=raw,
         )
