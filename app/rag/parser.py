@@ -169,8 +169,8 @@ class PDFParser:
 
             genai.configure(api_key=api_key)
 
-            # Use gemini-3.6-flash for vision — supports multimodal images & reactions
-            vision_model_name = os.getenv("GEMINI_VISION_MODEL", "gemini-3.6-flash")
+            # Use gemini-3.1-flash-lite for vision — fast, reliable, high quota
+            vision_model_name = os.getenv("GEMINI_VISION_MODEL", "gemini-3.1-flash-lite")
             self._vision_model = genai.GenerativeModel(vision_model_name)
             logger.info("Gemini Vision model initialised: %s", vision_model_name)
             return self._vision_model
@@ -210,31 +210,31 @@ class PDFParser:
 
             try:
                 xref = img_info[0]
-                base_image = doc.extract_image(xref)
-                if not base_image:
+                rects = page.get_image_rects(xref)
+                if not rects:
                     continue
 
-                width = base_image.get("width", 0)
-                height = base_image.get("height", 0)
-
-                # Skip full-page background templates
-                if width > 1200 and height > 1500:
+                r = rects[0]
+                # Filter out full-page background templates
+                if r.width > 500 and r.height > 600:
                     continue
 
-                # Skip narrow horizontal banners/dividers
-                if width / max(height, 1) > 6:
+                # Filter out horizontal banners
+                if r.width / max(r.height, 1) > 6:
                     continue
 
-                # Skip square logo watermarks
-                if width < 500 and height < 500 and abs(width - height) < 30:
+                # Filter out tiny logos / icons
+                if r.width < 100 or r.height < 50:
                     continue
 
-                # Skip tiny images (icons, bullets)
-                if width < 120 or height < 70:
+                # Filter out full-page background watermark overlays
+                if r.width > 400 and r.height > 400:
                     continue
 
-                image_bytes = base_image["image"]
-                image_ext = base_image.get("ext", "png")
+                # Render the crisp on-page pixmap for maximum chemical diagram readability
+                pix = page.get_pixmap(clip=r, dpi=200)
+                image_bytes = pix.tobytes()
+                image_ext = "png"
 
                 description = self._describe_image(
                     image_bytes, image_ext, page_number, processed + 1
