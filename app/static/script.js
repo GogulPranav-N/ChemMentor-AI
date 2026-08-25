@@ -742,7 +742,7 @@ function renderChemEquation(eq) {
   if (!eq) return '';
   const trimmed = String(eq).trim();
 
-  // Normalize LaTeX expressions for orbitals, asterisks, subscripts, and arrows
+  // Normalize LaTeX expressions for orbitals, asterisks, subscripts, triple bonds, and arrows
   let normalized = trimmed
     // Fix \+sigma^* or \+pi^* -> \sigma^{*}, \pi^{*}
     .replace(/\\+sigma\s*\^\s*\{\s*\*\s*\}/g, '\\sigma^{*}')
@@ -753,6 +753,8 @@ function renderChemEquation(eq) {
     .replace(/\\+pi\s*\^\s*\*/g, '\\pi^{*}')
     .replace(/\\+pi\s*\*/g, '\\pi^{*}')
     .replace(/\\+pi\s*/g, '\\pi ')
+    // Fix triple bonds
+    .replace(/\\+equiv/g, '\\equiv ')
     // Fix subscripts like _x, _y, _z, _g, _u -> _{x}, _{y}, etc.
     .replace(/_([xyzgu0-9])/g, '_{$1}')
     // Fix Unicode Greek/math to LaTeX commands for KaTeX math mode
@@ -768,7 +770,18 @@ function renderChemEquation(eq) {
     .replace(/∝/g, '\\propto ');
 
   if (typeof katex !== 'undefined') {
-    // 1. If contains \sigma, \pi, or comparison operators (<, >, =), render directly with KaTeX Math mode
+    // 1. If equation contains complex organic reactions (e.g. \xrightarrow, \equiv, intermediate complexes [ ])
+    if (/\\xrightarrow|\\xleftarrow|\\equiv|\\rightleftharpoons|\\longrightarrow|\\rightarrow|->/.test(normalized)) {
+      try {
+        return katex.renderToString(normalized, {
+          throwOnError: false,
+          displayMode: true,
+          trust: true,
+        });
+      } catch (e) { /* fallback below */ }
+    }
+
+    // 2. If contains \sigma, \pi, or comparison operators (<, >, =), render directly with KaTeX Math mode
     const isOrbitalOrMath = /\\sigma|\\pi|<|>|=|\+|-|\\Delta|\\frac|\^|\*/.test(normalized) &&
                            !/->|<=>|\\rightleftharpoons|\\rightarrow/.test(normalized);
 
@@ -782,34 +795,10 @@ function renderChemEquation(eq) {
       } catch (e) { /* fallback below */ }
     }
 
-    // 2. If already wrapped in \ce{...}, render directly with mhchem
+    // 3. If already wrapped in \ce{...}, render directly with mhchem
     if (trimmed.startsWith('\\ce{') && trimmed.endsWith('}')) {
       try {
         return katex.renderToString(trimmed, {
-          throwOnError: false,
-          displayMode: true,
-          trust: true,
-        });
-      } catch (e) { /* fallback below */ }
-    }
-
-    // 3. Try wrapping in \ce{...} for mhchem if it looks like a chemical formula/reaction
-    if (!/\\sigma|\\pi|<|>/.test(trimmed)) {
-      try {
-        let mhchemInput = trimmed
-          .replace(/\\rightarrow/g, '->')
-          .replace(/\\rightleftharpoons/g, '<=>')
-          .replace(/\\longrightarrow/g, '->')
-          .replace(/\\leftarrow/g, '<-')
-          .replace(/\\Delta/g, '\\Delta ')
-          .replace(/→/g, '->')
-          .replace(/⇌/g, '<=>')
-          .replace(/⟶/g, '->')
-          .replace(/←/g, '<-')
-          .replace(/_{([0-9a-zA-Z]+)}/g, '$1')
-          .replace(/\^{([0-9a-zA-Z+-]+)}/g, '^$1');
-
-        return katex.renderToString(`\\ce{${mhchemInput}}`, {
           throwOnError: false,
           displayMode: true,
           trust: true,
@@ -821,7 +810,7 @@ function renderChemEquation(eq) {
     try {
       return katex.renderToString(normalized, {
         throwOnError: false,
-        displayMode: false,
+        displayMode: true,
         trust: true,
       });
     } catch (e) { /* fallback to styled HTML below */ }
@@ -832,11 +821,15 @@ function renderChemEquation(eq) {
 
 /**
  * Fallback renderer when KaTeX is unavailable or fails.
- * Converts LaTeX symbols (\sigma, \pi, \Delta), _{} to <sub>, and ^{} to <sup> tags.
+ * Converts LaTeX symbols (\sigma, \pi, \Delta, \equiv, \xrightarrow), _{} to <sub>, and ^{} to <sup> tags.
  */
 function renderChemEquationFallback(eq) {
   return escapeHtml(eq)
     .replace(/\\ce\{([^}]+)\}/g, '$1')
+    .replace(/\\equiv/g, '<span style="font-weight:bold;margin:0 0.25rem;">≡</span>')
+    .replace(/\\text\{([^}]+)\}/g, '<span style="font-style:italic;">$1</span>')
+    .replace(/\\xrightarrow\[(.*?)\]\{(.*?)\}/g, '<span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 0.35rem;"><span style="font-size:0.75rem;color:#38bdf8;">$2</span><span class="chem-arrow" style="line-height:1;">⟶</span><span style="font-size:0.75rem;color:#94a3b8;">$1</span></span>')
+    .replace(/\\xrightarrow\{(.*?)\}/g, '<span style="display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;margin:0 0.35rem;"><span style="font-size:0.75rem;color:#38bdf8;">$1</span><span class="chem-arrow" style="line-height:1;">⟶</span></span>')
     .replace(/\\+sigma\s*\^\s*\{\s*\*\s*\}/g, 'σ*')
     .replace(/\\+sigma\s*\^\s*\*/g, 'σ*')
     .replace(/\\+sigma\s*\*/g, 'σ*')
@@ -852,6 +845,10 @@ function renderChemEquationFallback(eq) {
     .replace(/_([xyzgu0-9])/g, '<sub>$1</sub>')
     .replace(/\^{([^}]+)}/g, '<sup>$1</sup>')
     .replace(/\^([0-9*+-])/g, '<sup>$1</sup>')
+    .replace(/\\rightleftharpoons/g, '<span class="chem-arrow">⇌</span>')
+    .replace(/\\longrightarrow/g, '<span class="chem-arrow">⟶</span>')
+    .replace(/\\rightarrow/g, '<span class="chem-arrow">→</span>')
+    .replace(/\\leftarrow/g, '<span class="chem-arrow">←</span>')
     .replace(/→/g, '<span class="chem-arrow">→</span>')
     .replace(/⇌/g, '<span class="chem-arrow">⇌</span>')
     .replace(/⟶/g, '<span class="chem-arrow">⟶</span>')

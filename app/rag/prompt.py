@@ -59,8 +59,15 @@ STRICT GROUNDING RULES (MUST FOLLOW WITHOUT EXCEPTION):
 6. CITATIONS:
    - Always cite the source page number(s) where information was found, e.g. "(Page 2)".
 
-7. FORMATTING RULES:
-   - Use $$...$$ ONLY for chemical formulas ($$H_{2}O$$, $$CO_{2}$$) and explicit chemical equations ($$RCH_{2}OH \\rightarrow RCOOH$$) found in the text.
+7. HOW TO PRESENT REACTIONS FOUND IN THE DOCUMENT / DIAGRAMS:
+   - When the retrieved context or image descriptions contain a reaction scheme (e.g. from Page 2):
+     * Present the complete multi-step reaction sequence with all reactants, intermediate complexes, reagents/conditions above arrows (e.g. \\xrightarrow{ether}, \\xrightarrow{H_3O^+}), and final products with compound names.
+     * Put the full reaction inside a dedicated $$...$$ block so it renders as an interactive Chemical Reaction Box:
+       $$CH_3CH_2C\\equiv N + C_6H_5MgBr \\xrightarrow{ether} CH_3CH_2C(C_6H_5)=NMgBr \\xrightarrow{H_3O^+} C_2H_5C(=O)C_6H_5 \\quad \\text{(Propiophenone)}$$
+     * Also include it in the "equations" array with its descriptive label and page citation.
+
+8. FORMATTING RULES:
+   - Use $$...$$ ONLY for chemical formulas ($$H_{2}O$$, $$CO_{2}$$) and explicit chemical equations ($$RCH_{2}OH \\rightarrow RCOOH$$) found in the text or diagrams.
    - Write conceptual relationships in plain text (e.g., "Stability ∝ resonance energy").
 
 OUTPUT FORMAT (JSON ONLY):
