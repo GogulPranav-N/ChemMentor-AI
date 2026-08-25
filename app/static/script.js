@@ -445,14 +445,68 @@ function appendAssistantMessage(answer, sources, topics, equations = [], structu
   const div = document.createElement('div');
   div.className = `message message--assistant${isFallback ? ' message--fallback' : ''}`;
 
-  // ── Auto-synthesize MO structure cards if not provided by LLM
+  // ── Auto-synthesize structure cards if not provided by LLM
   if ((!structures || structures.length === 0) && !isFallback) {
+    const autoCards = [];
+
+    // 1. Check for Special NCERT Structures
+    if (/\bB_?2H_?6\b|diborane|banana bond/i.test(answer)) {
+      autoCards.push({
+        molecule: 'B_{2}H_{6}',
+        hybridisation: 'sp³ (Boron)',
+        geometry: 'Bridged Banana-Bond Structure (3c–2e)',
+        bond_angles: '120° (terminal H–B–H), 97° (bridge H–B–H)',
+        central_atom: 'B',
+        diagram_ascii: 'SPECIAL:B2H6'
+      });
+    }
+    if (/\bCrO_?5\b|chromium pentoxide|butterfly/i.test(answer)) {
+      autoCards.push({
+        molecule: 'CrO_{5}',
+        hybridisation: 'd³s / Octahedral derivative',
+        geometry: 'Butterfly Peroxide Linkage Structure',
+        bond_angles: 'Oxidation state of Cr = +6',
+        central_atom: 'Cr',
+        diagram_ascii: 'SPECIAL:CrO5'
+      });
+    }
+    if (/\bO_?3\b|ozone|resonance hybrid/i.test(answer) && !/mo theory|molecular orbital/i.test(answer)) {
+      autoCards.push({
+        molecule: 'O_{3}',
+        hybridisation: 'sp²',
+        geometry: 'Bent (V-Shaped) with Resonance',
+        bond_angles: '116.8° (Experimental)',
+        central_atom: 'O',
+        diagram_ascii: 'SPECIAL:O3'
+      });
+    }
+    if (/\bH_?2S_?2O_?8\b|marshall/i.test(answer)) {
+      autoCards.push({
+        molecule: 'H_{2}S_{2}O_{8}',
+        hybridisation: 'sp³ (Sulfur)',
+        geometry: 'Peroxodisulfuric Acid (–O–O– Bridge)',
+        bond_angles: 'Oxidation state of S = +6',
+        central_atom: 'S',
+        diagram_ascii: 'SPECIAL:H2S2O8'
+      });
+    }
+    if (/\bKHF_?2\b|bifluoride/i.test(answer)) {
+      autoCards.push({
+        molecule: 'KHF_{2}',
+        hybridisation: 'Linear [F···H···F]⁻',
+        geometry: 'Symmetric Hydrogen-Bonded Complex',
+        bond_angles: '180°',
+        central_atom: 'H',
+        diagram_ascii: 'SPECIAL:KHF2'
+      });
+    }
+
+    // 2. Check for Molecular Orbital (MO) Theory questions
     const hasMO = /molecular orbital|mo theory|energy level diagram|energy level order|orbital mixing|homonuclear|heteronuclear/i.test(answer) ||
                   /bond order|paramagnetic|diamagnetic/i.test(answer);
     if (hasMO) {
-      const moCards = [];
       if (/\bO_?2\b|oxygen/i.test(answer)) {
-        moCards.push({
+        autoCards.push({
           molecule: 'O_{2}',
           geometry: 'Linear (MO Theory: > 14e⁻, No sp-mixing shift)',
           bond_angles: 'Bond Order = 2.0 (Paramagnetic: 2 unpaired e⁻ in π*2p)',
@@ -461,7 +515,7 @@ function appendAssistantMessage(answer, sources, topics, equations = [], structu
         });
       }
       if (/\bN_?2\b|nitrogen/i.test(answer)) {
-        moCards.push({
+        autoCards.push({
           molecule: 'N_{2}',
           geometry: 'Linear (MO Theory: ≤ 14e⁻, With sp-mixing shift)',
           bond_angles: 'Bond Order = 3.0 (Diamagnetic: 0 unpaired e⁻)',
@@ -470,7 +524,7 @@ function appendAssistantMessage(answer, sources, topics, equations = [], structu
         });
       }
       if (/\bF_?2\b|fluorine/i.test(answer)) {
-        moCards.push({
+        autoCards.push({
           molecule: 'F_{2}',
           geometry: 'Linear (MO Theory: > 14e⁻)',
           bond_angles: 'Bond Order = 1.0 (Diamagnetic)',
@@ -480,8 +534,8 @@ function appendAssistantMessage(answer, sources, topics, equations = [], structu
       }
       if (/\b(C_?2|B_?2|Be_?2|Li_?2|H_?2|He_?2|CO|NO)\b/i.test(answer)) {
         const mMatch = answer.match(/\b(C_?2|B_?2|Be_?2|Li_?2|H_?2|He_?2|CO|NO)\b/i);
-        if (mMatch && !moCards.some(m => m.molecule.includes(mMatch[1]))) {
-          moCards.push({
+        if (mMatch && !autoCards.some(m => m.molecule.includes(mMatch[1]))) {
+          autoCards.push({
             molecule: mMatch[1].replace(/_?2/, '_{2}'),
             geometry: 'Linear (MO Theory)',
             bond_angles: 'Molecular Orbital Energy Configuration',
@@ -490,9 +544,104 @@ function appendAssistantMessage(answer, sources, topics, equations = [], structu
           });
         }
       }
-      if (moCards.length > 0) {
-        structures = moCards;
+    }
+
+    // 3. Check for VSEPR molecules
+    if (autoCards.length === 0) {
+      if (/\bPCl_?5\b/i.test(answer)) {
+        autoCards.push({
+          molecule: 'PCl_{5}',
+          hybridisation: 'sp³d',
+          geometry: 'Trigonal Bipyramidal',
+          bond_angles: '120° (equatorial), 180° (axial)',
+          central_atom: 'P',
+          diagram_ascii: 'VSEPR:PCl5'
+        });
       }
+      if (/\bSF_?6\b/i.test(answer)) {
+        autoCards.push({
+          molecule: 'SF_{6}',
+          hybridisation: 'sp³d²',
+          geometry: 'Octahedral',
+          bond_angles: '90° (all F–S–F)',
+          central_atom: 'S',
+          diagram_ascii: 'VSEPR:SF6'
+        });
+      }
+      if (/\bXeF_?4\b/i.test(answer)) {
+        autoCards.push({
+          molecule: 'XeF_{4}',
+          hybridisation: 'sp³d²',
+          geometry: 'Square Planar (2 lone pairs)',
+          bond_angles: '90°',
+          central_atom: 'Xe',
+          diagram_ascii: 'VSEPR:XeF4'
+        });
+      }
+      if (/\bSF_?4\b/i.test(answer)) {
+        autoCards.push({
+          molecule: 'SF_{4}',
+          hybridisation: 'sp³d',
+          geometry: 'Seesaw (1 lone pair)',
+          bond_angles: '173° (axial), 102° (equatorial)',
+          central_atom: 'S',
+          diagram_ascii: 'VSEPR:SF4'
+        });
+      }
+      if (/\bClF_?3\b/i.test(answer)) {
+        autoCards.push({
+          molecule: 'ClF_{3}',
+          hybridisation: 'sp³d',
+          geometry: 'T-Shaped (2 lone pairs)',
+          bond_angles: '87.5°',
+          central_atom: 'Cl',
+          diagram_ascii: 'VSEPR:ClF3'
+        });
+      }
+      if (/\bNH_?3\b/i.test(answer)) {
+        autoCards.push({
+          molecule: 'NH_{3}',
+          hybridisation: 'sp³',
+          geometry: 'Trigonal Pyramidal (1 lone pair)',
+          bond_angles: '107°',
+          central_atom: 'N',
+          diagram_ascii: 'VSEPR:NH3'
+        });
+      }
+      if (/\bH_?2O\b/i.test(answer)) {
+        autoCards.push({
+          molecule: 'H_{2}O',
+          hybridisation: 'sp³',
+          geometry: 'Bent / V-Shaped (2 lone pairs)',
+          bond_angles: '104.5°',
+          central_atom: 'O',
+          diagram_ascii: 'VSEPR:H2O'
+        });
+      }
+      if (/\bCH_?4\b/i.test(answer)) {
+        autoCards.push({
+          molecule: 'CH_{4}',
+          hybridisation: 'sp³',
+          geometry: 'Tetrahedral',
+          bond_angles: '109.5°',
+          central_atom: 'C',
+          diagram_ascii: 'VSEPR:CH4'
+        });
+      }
+      if (/\bBF_?3\b/i.test(answer)) {
+        autoCards.push({
+          molecule: 'BF_{3}',
+          hybridisation: 'sp²',
+          geometry: 'Trigonal Planar',
+          bond_angles: '120°',
+          central_atom: 'B',
+          diagram_ascii: 'VSEPR:BF3'
+        });
+      }
+    }
+
+    if (autoCards.length > 0) {
+      structures = autoCards;
     }
   }
 
@@ -950,23 +1099,60 @@ function sanitizeLatexFromText(text) {
  * For orbital/MO diagrams, renders a visual HTML energy level diagram.
  * For regular Lewis structures, renders ASCII art.
  */
+/**
+ * ══════════════════════════════════════════════════════════════════════
+ * 12TH STANDARD / NCERT CHEMISTRY VISUALIZATION SUITE
+ * ══════════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * Main dispatcher for all molecular structure visualizations:
+ * 1. NCERT 3-Column Molecular Orbital (MO) Energy Level Diagrams
+ * 2. Special 12th Grade Inorganic Structures (Banana bonds, Butterfly peroxides, Ozone resonance)
+ * 3. 2D/3D VSEPR Molecular Geometries with Wedge-Dash bonds & Lone-pair lobes
+ */
 function buildStructureDiagram(st) {
-  const mol = st.molecule || '';
+  const mol = (st.molecule || '').replace(/[_{}]/g, '').toUpperCase();
+  const rawMol = st.molecule || '';
   const ascii = st.diagram_ascii || '';
+  const geom = (st.geometry || '').toLowerCase();
 
-  // Check if this is an MO / orbital energy level diagram
-  const isMODiagram = /MO_DIAGRAM|[σπ]\*?\s*\d[spdf]/i.test(ascii) ||
-                      /sigma|pi|bonding|antibonding|energy|homonuclear/i.test(ascii) ||
-                      /O_?2|N_?2|F_?2|C_?2|B_?2|Be_?2|Li_?2|H_?2|He_?2|CO|NO/i.test(mol);
-
-  if (isMODiagram) {
-    return buildMOEnergyDiagram(st);
+  // 1. Check for Special NCERT Inorganic Structures
+  if (/B2H6|DIBORANE/i.test(mol)) {
+    return buildDiboraneBananaBondSVG();
+  }
+  if (/CRO5|CHROMIUM.*PEROXIDE/i.test(mol)) {
+    return buildCrO5ButterflySVG();
+  }
+  if (/O3|OZONE/i.test(mol) && !/MO_DIAGRAM/i.test(ascii)) {
+    return buildOzoneResonanceSVG();
+  }
+  if (/H2S2O8|MARSHALL/i.test(mol)) {
+    return buildMarshallsAcidSVG();
+  }
+  if (/KHF2|BIFLUORIDE/i.test(mol)) {
+    return buildKHF2HydrogenBondSVG();
   }
 
+  // 2. Check for Molecular Orbital (MO) Theory questions / diatomic molecules
+  const isMODiagram = /MO_DIAGRAM|[σπ]\*?\s*\d[spdf]/i.test(ascii) ||
+                      /sigma|pi|bonding|antibonding|energy|homonuclear/i.test(ascii) ||
+                      /^(H2|HE2|LI2|BE2|B2|C2|N2|O2|F2|NE2|CO|NO|O2\+|O2\-)$/i.test(mol);
+
+  if (isMODiagram) {
+    return buildNCERTMODiagram(st);
+  }
+
+  // 3. Render VSEPR Vector Geometry (Ball-and-stick / Wedge-Dash with lone pairs)
+  if (st.geometry && st.geometry !== 'N/A' && st.geometry !== 'Linear (MO Theory)') {
+    return buildVSEPRGeometryDiagram(st);
+  }
+
+  // 4. Fallback to ASCII / Clean formatted code block if available
   if (ascii.trim()) {
     return `
       <div class="structure-diagram-box">
-        <span class="structure-diagram-label">🧬 Lewis / 2D Spatial Structure</span>
+        <span class="structure-diagram-label">🧬 Chemical Structure Diagram</span>
         <pre class="structure-diagram-pre">${escapeHtml(ascii)}</pre>
       </div>`;
   }
@@ -974,84 +1160,570 @@ function buildStructureDiagram(st) {
 }
 
 /**
- * Build a visual MO Energy Level Diagram using HTML/CSS.
- * Creates colored orbital level bars with electron fill indicators.
+ * ── 1. AUTHENTIC 3-COLUMN NCERT MOLECULAR ORBITAL DIAGRAM ──────────
+ * Left: Atom A (AO) | Center: Molecule (MO) | Right: Atom B (AO)
+ * Features electron spins (↑↓), dashed correlation lines, bond order calculation,
+ * magnetic property indicators, and HOMO/LUMO tags.
  */
-function buildMOEnergyDiagram(st) {
-  // Parse molecule to determine electron count and orbital configuration
-  const molecule = (st.molecule || '').replace(/[_{}]/g, '');
+function buildNCERTMODiagram(st) {
+  const molKey = (st.molecule || '').toUpperCase().replace(/[_{}]/g, '');
+  
+  // High-accuracy molecular orbital database for 1st & 2nd row diatomics
+  const moDatabase = {
+    'H2':  { name: 'H₂',  totalE: 2,  nb: 2, na: 0, bo: '1.0', mag: 'Diamagnetic', isOver14: false, s1s: '↑↓', s1s_s: '',   s2s: '',   s2s_s: '',   p2px: '',   p2py: '',   s2pz: '',   p2px_s: '', p2py_s: '', s2pz_s: '', ao1_1s: '↑',  ao1_2s: '',   ao1_2p: ['', '', ''], ao2_1s: '↑',  ao2_2s: '',   ao2_2p: ['', '', ''] },
+    'HE2': { name: 'He₂', totalE: 4,  nb: 2, na: 2, bo: '0.0', mag: 'Diamagnetic (Unstable)', isOver14: false, s1s: '↑↓', s1s_s: '↑↓', s2s: '',   s2s_s: '',   p2px: '',   p2py: '',   s2pz: '',   p2px_s: '', p2py_s: '', s2pz_s: '', ao1_1s: '↑↓', ao1_2s: '',   ao1_2p: ['', '', ''], ao2_1s: '↑↓', ao2_2s: '',   ao2_2p: ['', '', ''] },
+    'LI2': { name: 'Li₂', totalE: 6,  nb: 4, na: 2, bo: '1.0', mag: 'Diamagnetic', isOver14: false, s1s: '↑↓', s1s_s: '↑↓', s2s: '↑↓', s2s_s: '',   p2px: '',   p2py: '',   s2pz: '',   p2px_s: '', p2py_s: '', s2pz_s: '', ao1_1s: '↑↓', ao1_2s: '↑',  ao1_2p: ['', '', ''], ao2_1s: '↑↓', ao2_2s: '↑',  ao2_2p: ['', '', ''] },
+    'BE2': { name: 'Be₂', totalE: 8,  nb: 4, na: 4, bo: '0.0', mag: 'Diamagnetic (Unstable)', isOver14: false, s1s: '↑↓', s1s_s: '↑↓', s2s: '↑↓', s2s_s: '↑↓', p2px: '',   p2py: '',   s2pz: '',   p2px_s: '', p2py_s: '', s2pz_s: '', ao1_1s: '↑↓', ao1_2s: '↑↓', ao1_2p: ['', '', ''], ao2_1s: '↑↓', ao2_2s: '↑↓', ao2_2p: ['', '', ''] },
+    'B2':  { name: 'B₂',  totalE: 10, nb: 6, na: 4, bo: '1.0', mag: 'Paramagnetic (2 unpaired e⁻)', isOver14: false, s1s: '↑↓', s1s_s: '↑↓', s2s: '↑↓', s2s_s: '↑↓', p2px: '↑',  p2py: '↑',  s2pz: '',   p2px_s: '', p2py_s: '', s2pz_s: '', ao1_1s: '↑↓', ao1_2s: '↑↓', ao1_2p: ['↑', '', ''], ao2_1s: '↑↓', ao2_2s: '↑↓', ao2_2p: ['↑', '', ''] },
+    'C2':  { name: 'C₂',  totalE: 12, nb: 8, na: 4, bo: '2.0', mag: 'Diamagnetic (Contains only π-bonds)', isOver14: false, s1s: '↑↓', s1s_s: '↑↓', s2s: '↑↓', s2s_s: '↑↓', p2px: '↑↓', p2py: '↑↓', s2pz: '',   p2px_s: '', p2py_s: '', s2pz_s: '', ao1_1s: '↑↓', ao1_2s: '↑↓', ao1_2p: ['↑', '↑', ''], ao2_1s: '↑↓', ao2_2s: '↑↓', ao2_2p: ['↑', '↑', ''] },
+    'N2':  { name: 'N₂',  totalE: 14, nb: 10, na: 4, bo: '3.0', mag: 'Diamagnetic (1 σ + 2 π bonds)', isOver14: false, s1s: '↑↓', s1s_s: '↑↓', s2s: '↑↓', s2s_s: '↑↓', p2px: '↑↓', p2py: '↑↓', s2pz: '↑↓', p2px_s: '', p2py_s: '', s2pz_s: '', ao1_1s: '↑↓', ao1_2s: '↑↓', ao1_2p: ['↑', '↑', '↑'], ao2_1s: '↑↓', ao2_2s: '↑↓', ao2_2p: ['↑', '↑', '↑'] },
+    'O2':  { name: 'O₂',  totalE: 16, nb: 10, na: 6, bo: '2.0', mag: 'Paramagnetic (2 unpaired e⁻ in π*)', isOver14: true,  s1s: '↑↓', s1s_s: '↑↓', s2s: '↑↓', s2s_s: '↑↓', s2pz: '↑↓', p2px: '↑↓', p2py: '↑↓', p2px_s: '↑', p2py_s: '↑', s2pz_s: '', ao1_1s: '↑↓', ao1_2s: '↑↓', ao1_2p: ['↑↓', '↑', '↑'], ao2_1s: '↑↓', ao2_2s: '↑↓', ao2_2p: ['↑↓', '↑', '↑'] },
+    'F2':  { name: 'F₂',  totalE: 18, nb: 10, na: 8, bo: '1.0', mag: 'Diamagnetic (Single F–F bond)', isOver14: true,  s1s: '↑↓', s1s_s: '↑↓', s2s: '↑↓', s2s_s: '↑↓', s2pz: '↑↓', p2px: '↑↓', p2py: '↑↓', p2px_s: '↑↓', p2py_s: '↑↓', s2pz_s: '', ao1_1s: '↑↓', ao1_2s: '↑↓', ao1_2p: ['↑↓', '↑↓', '↑'], ao2_1s: '↑↓', ao2_2s: '↑↓', ao2_2p: ['↑↓', '↑↓', '↑'] },
+    'CO':  { name: 'CO',  totalE: 14, nb: 10, na: 4, bo: '3.0', mag: 'Diamagnetic', isOver14: false, s1s: '↑↓', s1s_s: '↑↓', s2s: '↑↓', s2s_s: '↑↓', p2px: '↑↓', p2py: '↑↓', s2pz: '↑↓', p2px_s: '', p2py_s: '', s2pz_s: '', ao1_1s: '↑↓', ao1_2s: '↑↓', ao1_2p: ['↑', '↑', ''], ao2_1s: '↑↓', ao2_2s: '↑↓', ao2_2p: ['↑↓', '↑', '↑'] },
+    'NO':  { name: 'NO',  totalE: 15, nb: 10, na: 5, bo: '2.5', mag: 'Paramagnetic (1 unpaired e⁻ in π*)', isOver14: true,  s1s: '↑↓', s1s_s: '↑↓', s2s: '↑↓', s2s_s: '↑↓', s2pz: '↑↓', p2px: '↑↓', p2py: '↑↓', p2px_s: '↑', p2py_s: '', s2pz_s: '', ao1_1s: '↑↓', ao1_2s: '↑↓', ao1_2p: ['↑', '↑', '↑'], ao2_1s: '↑↓', ao2_2s: '↑↓', ao2_2p: ['↑↓', '↑', '↑'] }
+  };
 
-  // Define standard MO levels (low energy → high energy)
-  // For ≤14e- molecules (Li2, Be2, B2, C2, N2): π before σ2p due to sp-mixing
-  // For >14e- molecules (O2, F2, Ne2): σ2p before π (no sp-mixing inversion)
-  const isOver14 = /O[_]?2|F[_]?2|Ne[_]?2/i.test(molecule);
+  const data = moDatabase[molKey] || moDatabase['O2'];
+  const isOver14 = data.isOver14;
+  const isParamagnetic = data.mag.toLowerCase().includes('paramagnetic');
 
-  const moLevelsStandard = [
-    { label: 'σ 1s', type: 'bond', degenerate: false },
-    { label: 'σ* 1s', type: 'antibond', degenerate: false },
-    { label: 'σ 2s', type: 'bond', degenerate: false },
-    { label: 'σ* 2s', type: 'antibond', degenerate: false },
-    { label: 'π 2p', type: 'bond', degenerate: true, sublabels: ['π 2pₓ', 'π 2p_y'] },
-    { label: 'σ 2p_z', type: 'bond', degenerate: false },
-    { label: 'π* 2p', type: 'antibond', degenerate: true, sublabels: ['π* 2pₓ', 'π* 2p_y'] },
-    { label: 'σ* 2p_z', type: 'antibond', degenerate: false },
-  ];
+  // SVG dimensions
+  const W = 620;
+  const H = 450;
 
-  const moLevelsOver14 = [
-    { label: 'σ 1s', type: 'bond', degenerate: false },
-    { label: 'σ* 1s', type: 'antibond', degenerate: false },
-    { label: 'σ 2s', type: 'bond', degenerate: false },
-    { label: 'σ* 2s', type: 'antibond', degenerate: false },
-    { label: 'σ 2p_z', type: 'bond', degenerate: false },
-    { label: 'π 2p', type: 'bond', degenerate: true, sublabels: ['π 2pₓ', 'π 2p_y'] },
-    { label: 'π* 2p', type: 'antibond', degenerate: true, sublabels: ['π* 2pₓ', 'π* 2p_y'] },
-    { label: 'σ* 2p_z', type: 'antibond', degenerate: false },
-  ];
+  // Box positions
+  // Left AO center X = 95, Center MO center X = 310, Right AO center X = 525
+  const lx = 95;
+  const cx = 310;
+  const rx = 525;
 
-  const levels = isOver14 ? moLevelsOver14 : moLevelsStandard;
+  // Y levels for 2p, 2s
+  const y_2p_AO = 135;
+  const y_s2pz_star = 50;
+  const y_p2p_star = 95;
+  const y_upper_center = isOver14 ? 175 : 140; // in O2, pi is above sigma; in N2, sigma is above pi
+  const y_lower_center = isOver14 ? 140 : 175; // in O2, sigma is below pi; in N2, pi is below sigma
+  const y_2s_AO = 310;
+  const y_s2s_star = 265;
+  const y_s2s = 355;
 
-  const rows = levels.map((level, idx) => {
-    const energyPct = Math.round(((idx + 1) / levels.length) * 100);
-    const typeClass = level.type === 'antibond' ? 'mo-level--antibond' : 'mo-level--bond';
-    const degClass = level.degenerate ? 'mo-level--degenerate' : '';
-
-    const labelHtml = level.degenerate
-      ? `<span class="mo-sublabels">${level.sublabels.map(s => `<span>${renderChemEquationFallback(s)}</span>`).join(' ')}</span>`
-      : `<span>${renderChemEquationFallback(level.label)}</span>`;
-
-    return `
-      <div class="mo-level ${typeClass} ${degClass}" style="--energy: ${energyPct}%">
-        <span class="mo-level-label">${labelHtml}</span>
-        <div class="mo-level-bar">
-          ${level.degenerate ? '<div class="mo-bar-segment"></div><div class="mo-bar-segment"></div>' : '<div class="mo-bar-segment"></div>'}
-        </div>
-        <span class="mo-level-type">${level.type === 'antibond' ? 'Antibonding (*)' : 'Bonding'}</span>
-      </div>`;
-  }).reverse().join('');
-
-  const mixingNote = isOver14
-    ? '<span class="mo-note-badge">⚡ > 14e⁻ System: σ 2p_z is lower in energy than π 2p (no sp-mixing shift)</span>'
-    : '<span class="mo-note-badge">⚡ ≤ 14e⁻ System: π 2p is lower in energy than σ 2p_z (due to sp-orbital mixing)</span>';
+  // Labels for upper/lower center
+  const label_upper = isOver14 ? 'π 2pₓ  π 2p_y' : 'σ 2p_z';
+  const label_lower = isOver14 ? 'σ 2p_z' : 'π 2pₓ  π 2p_y';
+  const fill_upper = isOver14 ? `${data.p2px || ' '}  ${data.p2py || ' '}` : (data.s2pz || ' ');
+  const fill_lower = isOver14 ? (data.s2pz || ' ') : `${data.p2px || ' '}  ${data.p2py || ' '}`;
 
   return `
-    <div class="structure-diagram-box mo-diagram-box">
+    <div class="structure-diagram-box ncert-mo-card">
       <div class="mo-diagram-header">
-        <span class="structure-diagram-label">⚛️ Molecular Orbital Energy Level Diagram</span>
-        ${mixingNote}
-      </div>
-      <div class="mo-diagram">
-        <div class="mo-energy-axis">
-          <span class="mo-axis-label-top">↑ Energy</span>
-          <div class="mo-axis-line"></div>
+        <div class="mo-title-group">
+          <span class="structure-diagram-label">⚛️ NCERT Molecular Orbital Energy Level Diagram (${data.name})</span>
+          <span class="mo-badge-electrons">${data.totalE} Total Electrons</span>
         </div>
-        <div class="mo-levels-container">
-          ${rows}
+        <span class="mo-note-badge ${isOver14 ? 'mo-note--over14' : 'mo-note--under14'}">
+          ${isOver14 ? '⚡ > 14e⁻: σ 2p_z is lower than π 2p' : '⚡ ≤ 14e⁻: π 2p is lower than σ 2p_z (sp-mixing)'}
+        </span>
+      </div>
+
+      <!-- SVG 3-Column Diagram -->
+      <div class="ncert-mo-canvas-wrap">
+        <svg viewBox="0 0 ${W} ${H}" class="ncert-mo-svg" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="moAxisGrad" x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.2"/>
+              <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.9"/>
+            </linearGradient>
+            <filter id="boxGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="2" result="blur"/>
+              <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+            </filter>
+          </defs>
+
+          <!-- Column Titles -->
+          <text x="${lx}" y="24" fill="#94a3b8" font-size="12" font-weight="700" text-anchor="middle">Atom A Orbitals</text>
+          <text x="${cx}" y="24" fill="#38bdf8" font-size="13" font-weight="700" text-anchor="middle">${data.name} Molecular Orbitals</text>
+          <text x="${rx}" y="24" fill="#94a3b8" font-size="12" font-weight="700" text-anchor="middle">Atom B Orbitals</text>
+
+          <!-- Energy Axis -->
+          <line x1="22" y1="390" x2="22" y2="40" stroke="url(#moAxisGrad)" stroke-width="2.5"/>
+          <polygon points="22,32 17,44 27,44" fill="#38bdf8"/>
+          <text x="22" y="24" fill="#38bdf8" font-size="11" font-weight="800" text-anchor="middle">↑ Energy</text>
+
+          <!-- Dashed Correlation Lines -->
+          <!-- 2p connections -->
+          <line x1="${lx + 35}" y1="${y_2p_AO}" x2="${cx - 25}" y2="${y_s2pz_star}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+          <line x1="${rx - 35}" y1="${y_2p_AO}" x2="${cx + 25}" y2="${y_s2pz_star}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+          <line x1="${lx + 35}" y1="${y_2p_AO}" x2="${cx - 40}" y2="${y_p2p_star}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+          <line x1="${rx - 35}" y1="${y_2p_AO}" x2="${cx + 40}" y2="${y_p2p_star}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+          <line x1="${lx + 35}" y1="${y_2p_AO}" x2="${cx - 40}" y2="${y_upper_center}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+          <line x1="${rx - 35}" y1="${y_2p_AO}" x2="${cx + 40}" y2="${y_upper_center}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+          <line x1="${lx + 35}" y1="${y_2p_AO}" x2="${cx - 25}" y2="${y_lower_center}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+          <line x1="${rx - 35}" y1="${y_2p_AO}" x2="${cx + 25}" y2="${y_lower_center}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+
+          <!-- 2s connections -->
+          <line x1="${lx + 20}" y1="${y_2s_AO}" x2="${cx - 25}" y2="${y_s2s_star}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+          <line x1="${rx - 20}" y1="${y_2s_AO}" x2="${cx + 25}" y2="${y_s2s_star}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+          <line x1="${lx + 20}" y1="${y_2s_AO}" x2="${cx - 25}" y2="${y_s2s}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+          <line x1="${rx - 20}" y1="${y_2s_AO}" x2="${cx + 25}" y2="${y_s2s}" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>
+
+          <!-- ── ATOMIC ORBITALS (LEFT: ATOM A) ── -->
+          <!-- 2p (3 boxes) -->
+          <g class="ao-group">
+            <rect x="${lx - 36}" y="${y_2p_AO - 12}" width="24" height="24" rx="3" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+            <text x="${lx - 24}" y="${y_2p_AO + 5}" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">${data.ao1_2p[0] || ''}</text>
+            <rect x="${lx - 12}" y="${y_2p_AO - 12}" width="24" height="24" rx="3" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+            <text x="${lx}" y="${y_2p_AO + 5}" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">${data.ao1_2p[1] || ''}</text>
+            <rect x="${lx + 12}" y="${y_2p_AO - 12}" width="24" height="24" rx="3" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+            <text x="${lx + 24}" y="${y_2p_AO + 5}" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">${data.ao1_2p[2] || ''}</text>
+            <text x="${lx}" y="${y_2p_AO + 26}" fill="#94a3b8" font-size="11" text-anchor="middle">2p</text>
+          </g>
+
+          <!-- 2s (1 box) -->
+          <g class="ao-group">
+            <rect x="${lx - 14}" y="${y_2s_AO - 12}" width="28" height="24" rx="3" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+            <text x="${lx}" y="${y_2s_AO + 5}" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">${data.ao1_2s || ''}</text>
+            <text x="${lx}" y="${y_2s_AO + 26}" fill="#94a3b8" font-size="11" text-anchor="middle">2s</text>
+          </g>
+
+          <!-- ── ATOMIC ORBITALS (RIGHT: ATOM B) ── -->
+          <!-- 2p (3 boxes) -->
+          <g class="ao-group">
+            <rect x="${rx - 36}" y="${y_2p_AO - 12}" width="24" height="24" rx="3" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+            <text x="${rx - 24}" y="${y_2p_AO + 5}" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">${data.ao2_2p[0] || ''}</text>
+            <rect x="${rx - 12}" y="${y_2p_AO - 12}" width="24" height="24" rx="3" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+            <text x="${rx}" y="${y_2p_AO + 5}" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">${data.ao2_2p[1] || ''}</text>
+            <rect x="${rx + 12}" y="${y_2p_AO - 12}" width="24" height="24" rx="3" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+            <text x="${rx + 24}" y="${y_2p_AO + 5}" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">${data.ao2_2p[2] || ''}</text>
+            <text x="${rx}" y="${y_2p_AO + 26}" fill="#94a3b8" font-size="11" text-anchor="middle">2p</text>
+          </g>
+
+          <!-- 2s (1 box) -->
+          <g class="ao-group">
+            <rect x="${rx - 14}" y="${y_2s_AO - 12}" width="28" height="24" rx="3" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+            <text x="${rx}" y="${y_2s_AO + 5}" fill="#f8fafc" font-size="12" font-weight="bold" text-anchor="middle">${data.ao2_2s || ''}</text>
+            <text x="${rx}" y="${y_2s_AO + 26}" fill="#94a3b8" font-size="11" text-anchor="middle">2s</text>
+          </g>
+
+          <!-- ── CENTER MOLECULAR ORBITALS ── -->
+          <!-- 1. σ* 2p_z (Level 8 - Top) -->
+          <g class="mo-box mo-box--antibond">
+            <rect x="${cx - 18}" y="${y_s2pz_star - 12}" width="36" height="24" rx="4" fill="rgba(248, 113, 113, 0.15)" stroke="#f87171" stroke-width="2"/>
+            <text x="${cx}" y="${y_s2pz_star + 5}" fill="#fca5a5" font-size="12" font-weight="bold" text-anchor="middle">${data.s2pz_s || ''}</text>
+            <text x="${cx + 32}" y="${y_s2pz_star + 4}" fill="#f87171" font-size="11" font-weight="600">σ* 2p_z</text>
+          </g>
+
+          <!-- 2. π* 2p_x, π* 2p_y (Level 7 - Degenerate Antibonding) -->
+          <g class="mo-box mo-box--antibond">
+            <rect x="${cx - 36}" y="${y_p2p_star - 12}" width="32" height="24" rx="4" fill="rgba(248, 113, 113, 0.15)" stroke="#f87171" stroke-width="2"/>
+            <text x="${cx - 20}" y="${y_p2p_star + 5}" fill="#fca5a5" font-size="12" font-weight="bold" text-anchor="middle">${data.p2px_s || ''}</text>
+            <rect x="${cx + 4}" y="${y_p2p_star - 12}" width="32" height="24" rx="4" fill="rgba(248, 113, 113, 0.15)" stroke="#f87171" stroke-width="2"/>
+            <text x="${cx + 20}" y="${y_p2p_star + 5}" fill="#fca5a5" font-size="12" font-weight="bold" text-anchor="middle">${data.p2py_s || ''}</text>
+            <text x="${cx + 48}" y="${y_p2p_star + 4}" fill="#f87171" font-size="11" font-weight="600">π* 2p_x, π* 2p_y</text>
+          </g>
+
+          <!-- 3. Upper Center (Level 6) -->
+          <g class="mo-box ${isOver14 ? 'mo-box--bond' : 'mo-box--bond'}">
+            ${isOver14
+              ? `<rect x="${cx - 36}" y="${y_upper_center - 12}" width="32" height="24" rx="4" fill="rgba(56, 189, 248, 0.15)" stroke="#38bdf8" stroke-width="2"/>
+                 <text x="${cx - 20}" y="${y_upper_center + 5}" fill="#38bdf8" font-size="12" font-weight="bold" text-anchor="middle">${data.p2px || ''}</text>
+                 <rect x="${cx + 4}" y="${y_upper_center - 12}" width="32" height="24" rx="4" fill="rgba(56, 189, 248, 0.15)" stroke="#38bdf8" stroke-width="2"/>
+                 <text x="${cx + 20}" y="${y_upper_center + 5}" fill="#38bdf8" font-size="12" font-weight="bold" text-anchor="middle">${data.p2py || ''}</text>
+                 <text x="${cx + 48}" y="${y_upper_center + 4}" fill="#38bdf8" font-size="11" font-weight="600">π 2p_x, π 2p_y</text>`
+              : `<rect x="${cx - 18}" y="${y_upper_center - 12}" width="36" height="24" rx="4" fill="rgba(56, 189, 248, 0.15)" stroke="#38bdf8" stroke-width="2"/>
+                 <text x="${cx}" y="${y_upper_center + 5}" fill="#38bdf8" font-size="12" font-weight="bold" text-anchor="middle">${data.s2pz || ''}</text>
+                 <text x="${cx + 32}" y="${y_upper_center + 4}" fill="#38bdf8" font-size="11" font-weight="600">σ 2p_z</text>`
+            }
+          </g>
+
+          <!-- 4. Lower Center (Level 5) -->
+          <g class="mo-box mo-box--bond">
+            ${isOver14
+              ? `<rect x="${cx - 18}" y="${y_lower_center - 12}" width="36" height="24" rx="4" fill="rgba(56, 189, 248, 0.15)" stroke="#38bdf8" stroke-width="2"/>
+                 <text x="${cx}" y="${y_lower_center + 5}" fill="#38bdf8" font-size="12" font-weight="bold" text-anchor="middle">${data.s2pz || ''}</text>
+                 <text x="${cx + 32}" y="${y_lower_center + 4}" fill="#38bdf8" font-size="11" font-weight="600">σ 2p_z</text>`
+              : `<rect x="${cx - 36}" y="${y_lower_center - 12}" width="32" height="24" rx="4" fill="rgba(56, 189, 248, 0.15)" stroke="#38bdf8" stroke-width="2"/>
+                 <text x="${cx - 20}" y="${y_lower_center + 5}" fill="#38bdf8" font-size="12" font-weight="bold" text-anchor="middle">${data.p2px || ''}</text>
+                 <rect x="${cx + 4}" y="${y_lower_center - 12}" width="32" height="24" rx="4" fill="rgba(56, 189, 248, 0.15)" stroke="#38bdf8" stroke-width="2"/>
+                 <text x="${cx + 20}" y="${y_lower_center + 5}" fill="#38bdf8" font-size="12" font-weight="bold" text-anchor="middle">${data.p2py || ''}</text>
+                 <text x="${cx + 48}" y="${y_lower_center + 4}" fill="#38bdf8" font-size="11" font-weight="600">π 2p_x, π 2p_y</text>`
+            }
+          </g>
+
+          <!-- 5. σ* 2s (Level 4) -->
+          <g class="mo-box mo-box--antibond">
+            <rect x="${cx - 18}" y="${y_s2s_star - 12}" width="36" height="24" rx="4" fill="rgba(248, 113, 113, 0.15)" stroke="#f87171" stroke-width="2"/>
+            <text x="${cx}" y="${y_s2s_star + 5}" fill="#fca5a5" font-size="12" font-weight="bold" text-anchor="middle">${data.s2s_s || ''}</text>
+            <text x="${cx + 32}" y="${y_s2s_star + 4}" fill="#f87171" font-size="11" font-weight="600">σ* 2s</text>
+          </g>
+
+          <!-- 6. σ 2s (Level 3) -->
+          <g class="mo-box mo-box--bond">
+            <rect x="${cx - 18}" y="${y_s2s - 12}" width="36" height="24" rx="4" fill="rgba(56, 189, 248, 0.15)" stroke="#38bdf8" stroke-width="2"/>
+            <text x="${cx}" y="${y_s2s + 5}" fill="#38bdf8" font-size="12" font-weight="bold" text-anchor="middle">${data.s2s || ''}</text>
+            <text x="${cx + 32}" y="${y_s2s + 4}" fill="#38bdf8" font-size="11" font-weight="600">σ 2s</text>
+          </g>
+        </svg>
+      </div>
+
+      <!-- NCERT MO Stats Summary Card -->
+      <div class="mo-stats-grid">
+        <div class="mo-stat-card">
+          <span class="mo-stat-label">Bond Order Calculation</span>
+          <div class="mo-stat-calc">
+            <span>Bond Order = <span class="mo-stat-formula">(N<sub>b</sub> - N<sub>a</sub>) / 2</span></span>
+            <span class="mo-stat-val">= (${data.nb} - ${data.na}) / 2 = <strong>${data.bo}</strong></span>
+          </div>
+        </div>
+        <div class="mo-stat-card">
+          <span class="mo-stat-label">Magnetic Property</span>
+          <div class="mo-mag-badge ${isParamagnetic ? 'mo-mag--paramagnetic' : 'mo-mag--diamagnetic'}">
+            <span>${isParamagnetic ? '🧲 Paramagnetic' : '🛡️ Diamagnetic'}</span>
+            <small>${data.mag}</small>
+          </div>
         </div>
       </div>
-      <div class="mo-legend">
-        <span class="mo-legend-item mo-legend--bond">● Bonding</span>
-        <span class="mo-legend-item mo-legend--antibond">● Antibonding (*)</span>
-        <span class="mo-legend-item mo-legend--degen">═ Degenerate Pair (π_x, π_y)</span>
+    </div>`;
+}
+
+/**
+ * ── 2. VSEPR 2D/3D VECTOR GEOMETRY ENGINE (SVG) ───────────────────
+ * Renders high-precision geometric shape drawings with wedge/dash bonds,
+ * lone pair orbital lobes, and exact bond angles.
+ */
+function buildVSEPRGeometryDiagram(st) {
+  const mol = (st.molecule || '').replace(/[_{}]/g, '');
+  const geom = (st.geometry || '').toLowerCase();
+  const central = st.central_atom || 'A';
+  const angle = st.bond_angles || '';
+
+  // SVG dimensions
+  const W = 360;
+  const H = 240;
+  const cx = 180;
+  const cy = 120;
+
+  let shapeSvg = '';
+
+  if (geom.includes('linear')) {
+    // Linear (180°)
+    shapeSvg = `
+      <line x1="${cx - 80}" y1="${cy}" x2="${cx + 80}" y2="${cy}" stroke="#94a3b8" stroke-width="3"/>
+      <circle cx="${cx - 80}" cy="${cy}" r="14" fill="#38bdf8"/>
+      <text x="${cx - 80}" y="${cy + 4}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx + 80}" cy="${cy}" r="14" fill="#38bdf8"/>
+      <text x="${cx + 80}" y="${cy + 4}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx}" cy="${cy}" r="18" fill="#818cf8"/>
+      <text x="${cx}" y="${cy + 5}" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">${central}</text>
+      <!-- Angle Arc -->
+      <path d="M ${cx - 30} ${cy} A 30 30 0 0 1 ${cx + 30} ${cy}" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="2,2"/>
+      <text x="${cx}" y="${cy - 35}" fill="#fbbf24" font-size="11" font-weight="bold" text-anchor="middle">180°</text>`;
+  }
+  else if (geom.includes('trigonal planar')) {
+    // Trigonal Planar (120°)
+    shapeSvg = `
+      <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - 70}" stroke="#94a3b8" stroke-width="3"/>
+      <line x1="${cx}" y1="${cy}" x2="${cx - 65}" y2="${cy + 40}" stroke="#94a3b8" stroke-width="3"/>
+      <line x1="${cx}" y1="${cy}" x2="${cx + 65}" y2="${cy + 40}" stroke="#94a3b8" stroke-width="3"/>
+      <circle cx="${cx}" cy="${cy - 70}" r="13" fill="#38bdf8"/><text x="${cx}" y="${cy - 66}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx - 65}" cy="${cy + 40}" r="13" fill="#38bdf8"/><text x="${cx - 65}" y="${cy + 44}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx + 65}" cy="${cy + 40}" r="13" fill="#38bdf8"/><text x="${cx + 65}" y="${cy + 44}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx}" cy="${cy}" r="18" fill="#818cf8"/><text x="${cx}" y="${cy + 5}" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">${central}</text>
+      <text x="${cx + 38}" y="${cy - 20}" fill="#fbbf24" font-size="11" font-weight="bold">120°</text>`;
+  }
+  else if (geom.includes('bent') || geom.includes('v-shaped')) {
+    // Bent / V-Shaped (e.g. H2O, SO2) with 2 Lone Pair lobes
+    shapeSvg = `
+      <!-- Lone pair lobes -->
+      <path d="M ${cx - 5} ${cy - 10} C ${cx - 30} ${cy - 60}, ${cx - 5} ${cy - 75}, ${cx} ${cy - 40} Z" fill="rgba(167, 139, 250, 0.25)" stroke="#a78bfa" stroke-width="1.5"/>
+      <circle cx="${cx - 14}" cy="${cy - 52}" r="2" fill="#c084fc"/><circle cx="${cx - 8}" cy="${cy - 56}" r="2" fill="#c084fc"/>
+      <path d="M ${cx + 5} ${cy - 10} C ${cx + 30} ${cy - 60}, ${cx + 5} ${cy - 75}, ${cx} ${cy - 40} Z" fill="rgba(167, 139, 250, 0.25)" stroke="#a78bfa" stroke-width="1.5"/>
+      <circle cx="${cx + 14}" cy="${cy - 52}" r="2" fill="#c084fc"/><circle cx="${cx + 8}" cy="${cy - 56}" r="2" fill="#c084fc"/>
+      <!-- Bonds -->
+      <line x1="${cx}" y1="${cy}" x2="${cx - 60}" y2="${cy + 50}" stroke="#94a3b8" stroke-width="3"/>
+      <line x1="${cx}" y1="${cy}" x2="${cx + 60}" y2="${cy + 50}" stroke="#94a3b8" stroke-width="3"/>
+      <circle cx="${cx - 60}" cy="${cy + 50}" r="13" fill="#38bdf8"/><text x="${cx - 60}" y="${cy + 54}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">H</text>
+      <circle cx="${cx + 60}" cy="${cy + 50}" r="13" fill="#38bdf8"/><text x="${cx + 60}" y="${cy + 54}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">H</text>
+      <circle cx="${cx}" cy="${cy}" r="18" fill="#f87171"/><text x="${cx}" y="${cy + 5}" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">${central}</text>
+      <text x="${cx}" y="${cy + 40}" fill="#fbbf24" font-size="11" font-weight="bold" text-anchor="middle">104.5°</text>`;
+  }
+  else if (geom.includes('trigonal pyramidal')) {
+    // Trigonal Pyramidal (e.g. NH3) with 1 top lone pair lobe
+    shapeSvg = `
+      <!-- Top lone pair lobe -->
+      <path d="M ${cx - 12} ${cy - 10} C ${cx - 20} ${cy - 65}, ${cx + 20} ${cy - 65}, ${cx + 12} ${cy - 10} Z" fill="rgba(167, 139, 250, 0.25)" stroke="#a78bfa" stroke-width="1.5"/>
+      <circle cx="${cx - 4}" cy="${cy - 48}" r="2" fill="#c084fc"/><circle cx="${cx + 4}" cy="${cy - 48}" r="2" fill="#c084fc"/>
+      <!-- In plane bond -->
+      <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy + 65}" stroke="#94a3b8" stroke-width="3"/>
+      <!-- Wedge bond -->
+      <polygon points="${cx},${cy} ${cx - 65},${cy + 45} ${cx - 50},${cy + 55}" fill="#38bdf8"/>
+      <!-- Dash bond -->
+      <line x1="${cx}" y1="${cy}" x2="${cx + 60}" y2="${cy + 45}" stroke="#94a3b8" stroke-width="3" stroke-dasharray="4,4"/>
+      <circle cx="${cx}" cy="${cy + 65}" r="13" fill="#38bdf8"/><text x="${cx}" y="${cy + 69}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">H</text>
+      <circle cx="${cx - 60}" cy="${cy + 50}" r="13" fill="#38bdf8"/><text x="${cx - 60}" y="${cy + 54}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">H</text>
+      <circle cx="${cx + 60}" cy="${cy + 45}" r="13" fill="#38bdf8"/><text x="${cx + 60}" y="${cy + 49}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">H</text>
+      <circle cx="${cx}" cy="${cy}" r="18" fill="#818cf8"/><text x="${cx}" y="${cy + 5}" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">${central}</text>
+      <text x="${cx + 35}" y="${cy + 30}" fill="#fbbf24" font-size="11" font-weight="bold">107°</text>`;
+  }
+  else if (geom.includes('tetrahedral')) {
+    // Tetrahedral (109.5°)
+    shapeSvg = `
+      <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - 70}" stroke="#94a3b8" stroke-width="3"/>
+      <line x1="${cx}" y1="${cy}" x2="${cx - 65}" y2="${cy + 35}" stroke="#94a3b8" stroke-width="3"/>
+      <polygon points="${cx},${cy} ${cx - 25},${cy + 65} ${cx - 40},${cy + 70}" fill="#38bdf8"/>
+      <line x1="${cx}" y1="${cy}" x2="${cx + 65}" y2="${cy + 45}" stroke="#94a3b8" stroke-width="3" stroke-dasharray="4,4"/>
+      <circle cx="${cx}" cy="${cy - 70}" r="13" fill="#38bdf8"/><text x="${cx}" y="${cy - 66}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx - 65}" cy="${cy + 35}" r="13" fill="#38bdf8"/><text x="${cx - 65}" y="${cy + 39}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx - 30}" cy="${cy + 68}" r="13" fill="#38bdf8"/><text x="${cx - 30}" y="${cy + 72}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx + 65}" cy="${cy + 45}" r="13" fill="#38bdf8"/><text x="${cx + 65}" y="${cy + 49}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx}" cy="${cy}" r="18" fill="#818cf8"/><text x="${cx}" y="${cy + 5}" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">${central}</text>
+      <text x="${cx + 30}" y="${cy - 20}" fill="#fbbf24" font-size="11" font-weight="bold">109.5°</text>`;
+  }
+  else if (geom.includes('trigonal bipyramidal')) {
+    // Trigonal Bipyramidal (PCl5) with Axial vs Equatorial annotations
+    shapeSvg = `
+      <!-- Axial bonds (Vertical, 180°) -->
+      <line x1="${cx}" y1="${cy - 80}" x2="${cx}" y2="${cy + 80}" stroke="#f87171" stroke-width="3.5"/>
+      <!-- Equatorial bonds (120°) -->
+      <line x1="${cx}" y1="${cy}" x2="${cx + 70}" y2="${cy}" stroke="#38bdf8" stroke-width="3"/>
+      <polygon points="${cx},${cy} ${cx - 45},${cy + 45} ${cx - 55},${cy + 35}" fill="#38bdf8"/>
+      <line x1="${cx}" y1="${cy}" x2="${cx - 45}" y2="${cy - 35}" stroke="#38bdf8" stroke-width="3" stroke-dasharray="4,4"/>
+      <!-- Axial Ligands -->
+      <circle cx="${cx}" cy="${cy - 80}" r="13" fill="#f87171"/><text x="${cx}" y="${cy - 76}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">Cl<tspan font-size="8">ax</tspan></text>
+      <circle cx="${cx}" cy="${cy + 80}" r="13" fill="#f87171"/><text x="${cx}" y="${cy + 84}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">Cl<tspan font-size="8">ax</tspan></text>
+      <!-- Equatorial Ligands -->
+      <circle cx="${cx + 70}" cy="${cy}" r="13" fill="#38bdf8"/><text x="${cx + 70}" y="${cy + 4}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">Cl<tspan font-size="8">eq</tspan></text>
+      <circle cx="${cx - 50}" cy="${cy + 40}" r="13" fill="#38bdf8"/><text x="${cx - 50}" y="${cy + 44}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">Cl<tspan font-size="8">eq</tspan></text>
+      <circle cx="${cx - 45}" cy="${cy - 35}" r="13" fill="#38bdf8"/><text x="${cx - 45}" y="${cy - 31}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">Cl<tspan font-size="8">eq</tspan></text>
+      <!-- Central Atom -->
+      <circle cx="${cx}" cy="${cy}" r="18" fill="#f59e0b"/><text x="${cx}" y="${cy + 5}" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">${central}</text>
+      <text x="${cx + 25}" y="${cy - 45}" fill="#f87171" font-size="10" font-weight="bold">Axial (Longer, 90°)</text>
+      <text x="${cx + 35}" y="${cy + 30}" fill="#38bdf8" font-size="10" font-weight="bold">Equatorial (120°)</text>`;
+  }
+  else if (geom.includes('octahedral') || geom.includes('square planar')) {
+    // Octahedral / Square Planar (SF6, XeF4)
+    const isSquarePlanar = geom.includes('square planar');
+    shapeSvg = `
+      ${isSquarePlanar
+        ? `<!-- Top & Bottom Lone Pair Lobes -->
+           <path d="M ${cx - 10} ${cy - 10} C ${cx - 15} ${cy - 60}, ${cx + 15} ${cy - 60}, ${cx + 10} ${cy - 10} Z" fill="rgba(167, 139, 250, 0.25)" stroke="#a78bfa" stroke-width="1.5"/>
+           <circle cx="${cx - 3}" cy="${cy - 45}" r="2" fill="#c084fc"/><circle cx="${cx + 3}" cy="${cy - 45}" r="2" fill="#c084fc"/>
+           <path d="M ${cx - 10} ${cy + 10} C ${cx - 15} ${cy + 60}, ${cx + 15} ${cy + 60}, ${cx + 10} ${cy + 10} Z" fill="rgba(167, 139, 250, 0.25)" stroke="#a78bfa" stroke-width="1.5"/>
+           <circle cx="${cx - 3}" cy="${cy + 45}" r="2" fill="#c084fc"/><circle cx="${cx + 3}" cy="${cy + 45}" r="2" fill="#c084fc"/>`
+        : `<!-- Top & Bottom Axial Bonds -->
+           <line x1="${cx}" y1="${cy - 75}" x2="${cx}" y2="${cy + 75}" stroke="#94a3b8" stroke-width="3"/>
+           <circle cx="${cx}" cy="${cy - 75}" r="13" fill="#38bdf8"/><text x="${cx}" y="${cy - 71}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">F</text>
+           <circle cx="${cx}" cy="${cy + 75}" r="13" fill="#38bdf8"/><text x="${cx}" y="${cy + 79}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">F</text>`
+      }
+      <!-- Equatorial square base -->
+      <line x1="${cx - 65}" y1="${cy}" x2="${cx + 65}" y2="${cy}" stroke="#94a3b8" stroke-width="3"/>
+      <polygon points="${cx},${cy} ${cx - 40},${cy + 35} ${cx - 50},${cy + 25}" fill="#38bdf8"/>
+      <line x1="${cx}" y1="${cy}" x2="${cx + 45}" y2="${cy - 25}" stroke="#94a3b8" stroke-width="3" stroke-dasharray="4,4"/>
+      <circle cx="${cx - 65}" cy="${cy}" r="13" fill="#38bdf8"/><text x="${cx - 65}" y="${cy + 4}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">F</text>
+      <circle cx="${cx + 65}" cy="${cy}" r="13" fill="#38bdf8"/><text x="${cx + 65}" y="${cy + 4}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">F</text>
+      <circle cx="${cx - 45}" cy="${cy + 30}" r="13" fill="#38bdf8"/><text x="${cx - 45}" y="${cy + 34}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">F</text>
+      <circle cx="${cx + 45}" cy="${cy - 25}" r="13" fill="#38bdf8"/><text x="${cx + 45}" y="${cy - 21}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">F</text>
+      <circle cx="${cx}" cy="${cy}" r="18" fill="#818cf8"/><text x="${cx}" y="${cy + 5}" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">${central}</text>
+      <text x="${cx + 35}" y="${cy + 55}" fill="#fbbf24" font-size="11" font-weight="bold">90°</text>`;
+  }
+  else {
+    // Default 3D Representation
+    shapeSvg = `
+      <line x1="${cx}" y1="${cy}" x2="${cx - 60}" y2="${cy - 50}" stroke="#94a3b8" stroke-width="3"/>
+      <line x1="${cx}" y1="${cy}" x2="${cx + 60}" y2="${cy - 50}" stroke="#94a3b8" stroke-width="3"/>
+      <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy + 60}" stroke="#94a3b8" stroke-width="3"/>
+      <circle cx="${cx - 60}" cy="${cy - 50}" r="13" fill="#38bdf8"/><text x="${cx - 60}" y="${cy - 46}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx + 60}" cy="${cy - 50}" r="13" fill="#38bdf8"/><text x="${cx + 60}" y="${cy - 46}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx}" cy="${cy + 60}" r="13" fill="#38bdf8"/><text x="${cx}" y="${cy + 64}" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">X</text>
+      <circle cx="${cx}" cy="${cy}" r="18" fill="#818cf8"/><text x="${cx}" y="${cy + 5}" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">${central}</text>`;
+  }
+
+  return `
+    <div class="structure-diagram-box vsepr-diagram-card">
+      <div class="mo-diagram-header">
+        <span class="structure-diagram-label">📐 3D VSEPR Vector Molecular Shape</span>
+        <span class="mo-note-badge" style="color:#a78bfa;border-color:rgba(167,139,250,0.3)">
+          ${escapeHtml(st.geometry || '')}
+        </span>
+      </div>
+      <div class="vsepr-canvas-wrap">
+        <svg viewBox="0 0 ${W} ${H}" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+          <rect width="${W}" height="${H}" rx="8" fill="rgba(8, 15, 28, 0.6)"/>
+          ${shapeSvg}
+        </svg>
+      </div>
+    </div>`;
+}
+
+/**
+ * ── 3. SPECIAL 12TH GRADE INORGANIC STRUCTURES ─────────────────────
+ */
+
+function buildDiboraneBananaBondSVG() {
+  return `
+    <div class="structure-diagram-box special-struct-card">
+      <div class="mo-diagram-header">
+        <span class="structure-diagram-label">🍌 Diborane (B₂H₆) — 3-Center-2-Electron (3c-2e) Banana Bonds</span>
+        <span class="mo-note-badge" style="color:#fbbf24">NCERT High-Yield</span>
+      </div>
+      <div class="vsepr-canvas-wrap">
+        <svg viewBox="0 0 420 220" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+          <rect width="420" height="220" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+          <!-- Terminal Bonds -->
+          <line x1="80" y1="50" x2="140" y2="110" stroke="#38bdf8" stroke-width="3"/>
+          <line x1="80" y1="170" x2="140" y2="110" stroke="#38bdf8" stroke-width="3"/>
+          <line x1="340" y1="50" x2="280" y2="110" stroke="#38bdf8" stroke-width="3"/>
+          <line x1="340" y1="170" x2="280" y2="110" stroke="#38bdf8" stroke-width="3"/>
+          <!-- Banana Bridge Curves -->
+          <path d="M 140 110 Q 210 20 280 110" fill="none" stroke="#fbbf24" stroke-width="4.5" stroke-linecap="round"/>
+          <path d="M 140 110 Q 210 200 280 110" fill="none" stroke="#fbbf24" stroke-width="4.5" stroke-linecap="round"/>
+          <!-- Bridge Hydrogens -->
+          <circle cx="210" cy="55" r="14" fill="#fbbf24"/><text x="210" y="59" fill="#0f172a" font-size="11" font-weight="bold" text-anchor="middle">H<tspan font-size="8">br</tspan></text>
+          <circle cx="210" cy="165" r="14" fill="#fbbf24"/><text x="210" y="169" fill="#0f172a" font-size="11" font-weight="bold" text-anchor="middle">H<tspan font-size="8">br</tspan></text>
+          <!-- Terminal Hydrogens -->
+          <circle cx="80" cy="50" r="12" fill="#38bdf8"/><text x="80" y="54" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">H<tspan font-size="7">t</tspan></text>
+          <circle cx="80" cy="170" r="12" fill="#38bdf8"/><text x="80" y="174" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">H<tspan font-size="7">t</tspan></text>
+          <circle cx="340" cy="50" r="12" fill="#38bdf8"/><text x="340" y="54" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">H<tspan font-size="7">t</tspan></text>
+          <circle cx="340" cy="170" r="12" fill="#38bdf8"/><text x="340" y="174" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">H<tspan font-size="7">t</tspan></text>
+          <!-- Boron Centers -->
+          <circle cx="140" cy="110" r="18" fill="#818cf8"/><text x="140" y="115" fill="#ffffff" font-size="13" font-weight="bold" text-anchor="middle">B</text>
+          <circle cx="280" cy="110" r="18" fill="#818cf8"/><text x="280" y="115" fill="#ffffff" font-size="13" font-weight="bold" text-anchor="middle">B</text>
+          <!-- Annotations -->
+          <text x="210" y="115" fill="#fbbf24" font-size="11" font-weight="bold" text-anchor="middle">3c–2e Banana Bond</text>
+        </svg>
+      </div>
+    </div>`;
+}
+
+function buildCrO5ButterflySVG() {
+  return `
+    <div class="structure-diagram-box special-struct-card">
+      <div class="mo-diagram-header">
+        <span class="structure-diagram-label">🦋 Chromium Pentoxide (CrO₅) — Butterfly Structure</span>
+        <span class="mo-note-badge" style="color:#38bdf8">Cr(+6) with 2 Peroxide Linkages</span>
+      </div>
+      <div class="vsepr-canvas-wrap">
+        <svg viewBox="0 0 380 220" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+          <rect width="380" height="220" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+          <!-- Double bond to Oxo -->
+          <line x1="187" y1="110" x2="187" y2="40" stroke="#f87171" stroke-width="3"/>
+          <line x1="193" y1="110" x2="193" y2="40" stroke="#f87171" stroke-width="3"/>
+          <circle cx="190" cy="35" r="14" fill="#f87171"/><text x="190" y="39" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">O<tspan font-size="7">(-2)</tspan></text>
+          <!-- Left Wing Peroxide (O-O) -->
+          <line x1="190" y1="110" x2="100" y2="70" stroke="#38bdf8" stroke-width="2.5"/>
+          <line x1="190" y1="110" x2="100" y2="150" stroke="#38bdf8" stroke-width="2.5"/>
+          <line x1="100" y1="70" x2="100" y2="150" stroke="#fbbf24" stroke-width="3"/>
+          <circle cx="100" cy="70" r="13" fill="#38bdf8"/><text x="100" y="74" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">O<tspan font-size="7">(-1)</tspan></text>
+          <circle cx="100" cy="150" r="13" fill="#38bdf8"/><text x="100" y="154" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">O<tspan font-size="7">(-1)</tspan></text>
+          <!-- Right Wing Peroxide (O-O) -->
+          <line x1="190" y1="110" x2="280" y2="70" stroke="#38bdf8" stroke-width="2.5"/>
+          <line x1="190" y1="110" x2="280" y2="150" stroke="#38bdf8" stroke-width="2.5"/>
+          <line x1="280" y1="70" x2="280" y2="150" stroke="#fbbf24" stroke-width="3"/>
+          <circle cx="280" cy="70" r="13" fill="#38bdf8"/><text x="280" y="74" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">O<tspan font-size="7">(-1)</tspan></text>
+          <circle cx="280" cy="150" r="13" fill="#38bdf8"/><text x="280" y="154" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">O<tspan font-size="7">(-1)</tspan></text>
+          <!-- Central Cr(+6) -->
+          <circle cx="190" cy="110" r="20" fill="#a855f7"/><text x="190" y="115" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">Cr<tspan font-size="8">+6</tspan></text>
+          <text x="190" y="200" fill="#fbbf24" font-size="11" font-weight="bold" text-anchor="middle">2 Peroxide Rings (O–O) + 1 Oxo (=O)</text>
+        </svg>
+      </div>
+    </div>`;
+}
+
+function buildOzoneResonanceSVG() {
+  return `
+    <div class="structure-diagram-box special-struct-card">
+      <div class="mo-diagram-header">
+        <span class="structure-diagram-label">⚡ Ozone (O₃) — Resonance & Formal Charges</span>
+        <span class="mo-note-badge" style="color:#a78bfa">Formal Charge: +1 (Center), -1 (Single), 0 (Double)</span>
+      </div>
+      <div class="vsepr-canvas-wrap">
+        <svg viewBox="0 0 460 180" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+          <rect width="460" height="180" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+          <!-- Canonical Form 1 (Left) -->
+          <g transform="translate(40, 20)">
+            <line x1="60" y1="40" x2="20" y2="100" stroke="#f87171" stroke-width="2.5"/>
+            <line x1="63" y1="40" x2="103" y2="100" stroke="#38bdf8" stroke-width="2"/>
+            <line x1="57" y1="40" x2="97" y2="100" stroke="#38bdf8" stroke-width="2"/>
+            <circle cx="60" cy="40" r="16" fill="#818cf8"/><text x="60" y="44" fill="#ffffff" font-size="11" font-weight="bold" text-anchor="middle">O<tspan font-size="8" fill="#fbbf24">⁺¹</tspan></text>
+            <circle cx="20" cy="100" r="14" fill="#f87171"/><text x="20" y="104" fill="#ffffff" font-size="10" font-weight="bold" text-anchor="middle">O<tspan font-size="8" fill="#fbbf24">⁻¹</tspan></text>
+            <circle cx="100" cy="100" r="14" fill="#38bdf8"/><text x="100" y="104" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">O<tspan font-size="8">⁰</tspan></text>
+          </g>
+          <!-- Double-headed arrow -->
+          <text x="230" y="95" fill="#fbbf24" font-size="22" font-weight="bold" text-anchor="middle">⟷</text>
+          <!-- Canonical Form 2 (Right) -->
+          <g transform="translate(260, 20)">
+            <line x1="63" y1="40" x2="23" y2="100" stroke="#38bdf8" stroke-width="2"/>
+            <line x1="57" y1="40" x2="17" y2="100" stroke="#38bdf8" stroke-width="2"/>
+            <line x1="60" y1="40" x2="100" y2="100" stroke="#f87171" stroke-width="2.5"/>
+            <circle cx="60" cy="40" r="16" fill="#818cf8"/><text x="60" y="44" fill="#ffffff" font-size="11" font-weight="bold" text-anchor="middle">O<tspan font-size="8" fill="#fbbf24">⁺¹</tspan></text>
+            <circle cx="20" cy="100" r="14" fill="#38bdf8"/><text x="20" y="104" fill="#0f172a" font-size="10" font-weight="bold" text-anchor="middle">O<tspan font-size="8">⁰</tspan></text>
+            <circle cx="100" cy="100" r="14" fill="#f87171"/><text x="100" y="104" fill="#ffffff" font-size="10" font-weight="bold" text-anchor="middle">O<tspan font-size="8" fill="#fbbf24">⁻¹</tspan></text>
+          </g>
+          <text x="230" y="160" fill="#94a3b8" font-size="11" text-anchor="middle">Resonance Hybrid: Bond order = 1.5, Bond length = 128 pm (Equal)</text>
+        </svg>
+      </div>
+    </div>`;
+}
+
+function buildMarshallsAcidSVG() {
+  return `
+    <div class="structure-diagram-box special-struct-card">
+      <div class="mo-diagram-header">
+        <span class="structure-diagram-label">🧪 Marshall's Acid (H₂S₂O₈) — Peroxodisulfuric Acid</span>
+        <span class="mo-note-badge" style="color:#fbbf24">Peroxide (–O–O–) Bridge</span>
+      </div>
+      <div class="vsepr-canvas-wrap">
+        <svg viewBox="0 0 440 180" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+          <rect width="440" height="180" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+          <!-- Center Peroxy Linkage -->
+          <line x1="190" y1="90" x2="250" y2="90" stroke="#fbbf24" stroke-width="3.5"/>
+          <line x1="130" y1="90" x2="190" y2="90" stroke="#38bdf8" stroke-width="2.5"/>
+          <line x1="250" y1="90" x2="310" y2="90" stroke="#38bdf8" stroke-width="2.5"/>
+          <!-- Left S(=O)2(OH) -->
+          <line x1="130" y1="90" x2="130" y2="40" stroke="#f87171" stroke-width="3"/>
+          <line x1="130" y1="90" x2="130" y2="140" stroke="#f87171" stroke-width="3"/>
+          <line x1="130" y1="90" x2="70" y2="90" stroke="#38bdf8" stroke-width="2.5"/>
+          <circle cx="70" cy="90" r="12" fill="#38bdf8"/><text x="70" y="94" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">OH</text>
+          <circle cx="130" cy="40" r="12" fill="#f87171"/><text x="130" y="44" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">O</text>
+          <circle cx="130" cy="140" r="12" fill="#f87171"/><text x="130" y="144" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">O</text>
+          <circle cx="130" cy="90" r="16" fill="#f59e0b"/><text x="130" y="95" fill="#ffffff" font-size="11" font-weight="bold" text-anchor="middle">S</text>
+          <!-- Peroxy Oxygens -->
+          <circle cx="190" cy="90" r="13" fill="#fbbf24"/><text x="190" y="94" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">O</text>
+          <circle cx="250" cy="90" r="13" fill="#fbbf24"/><text x="250" y="94" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">O</text>
+          <!-- Right S(=O)2(OH) -->
+          <line x1="310" y1="90" x2="310" y2="40" stroke="#f87171" stroke-width="3"/>
+          <line x1="310" y1="90" x2="310" y2="140" stroke="#f87171" stroke-width="3"/>
+          <line x1="310" y1="90" x2="370" y2="90" stroke="#38bdf8" stroke-width="2.5"/>
+          <circle cx="310" cy="90" r="16" fill="#f59e0b"/><text x="310" y="95" fill="#ffffff" font-size="11" font-weight="bold" text-anchor="middle">S</text>
+          <circle cx="310" cy="40" r="12" fill="#f87171"/><text x="310" y="44" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">O</text>
+          <circle cx="310" cy="140" r="12" fill="#f87171"/><text x="310" y="144" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">O</text>
+          <circle cx="370" cy="90" r="12" fill="#38bdf8"/><text x="370" y="94" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">OH</text>
+          <text x="220" y="165" fill="#fbbf24" font-size="11" font-weight="bold" text-anchor="middle">Peroxy Linkage: –O–O– (Oxidation state of S is +6)</text>
+        </svg>
+      </div>
+    </div>`;
+}
+
+function buildKHF2HydrogenBondSVG() {
+  return `
+    <div class="structure-diagram-box special-struct-card">
+      <div class="mo-diagram-header">
+        <span class="structure-diagram-label">🔗 Potassium Bifluoride (KHF₂) — Strong Symmetric H-Bond</span>
+        <span class="mo-note-badge" style="color:#38bdf8">Strongest Known H-Bond [F···H···F]⁻</span>
+      </div>
+      <div class="vsepr-canvas-wrap">
+        <svg viewBox="0 0 380 140" class="vsepr-svg" xmlns="http://www.w3.org/2000/svg">
+          <rect width="380" height="140" rx="8" fill="rgba(8, 15, 28, 0.7)"/>
+          <circle cx="60" cy="70" r="18" fill="#818cf8"/><text x="60" y="75" fill="#ffffff" font-size="12" font-weight="bold" text-anchor="middle">K⁺</text>
+          <!-- Bifluoride Complex [F...H...F]- -->
+          <rect x="110" y="30" width="240" height="80" rx="8" fill="none" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="4,4"/>
+          <text x="340" y="48" fill="#38bdf8" font-size="12" font-weight="bold">⁻</text>
+          <line x1="150" y1="70" x2="230" y2="70" stroke="#38bdf8" stroke-width="3" stroke-dasharray="5,3"/>
+          <line x1="230" y1="70" x2="310" y2="70" stroke="#38bdf8" stroke-width="3" stroke-dasharray="5,3"/>
+          <circle cx="150" cy="70" r="15" fill="#38bdf8"/><text x="150" y="74" fill="#0f172a" font-size="11" font-weight="bold" text-anchor="middle">F</text>
+          <circle cx="230" cy="70" r="11" fill="#f8fafc"/><text x="230" y="74" fill="#0f172a" font-size="9" font-weight="bold" text-anchor="middle">H</text>
+          <circle cx="310" cy="70" r="15" fill="#38bdf8"/><text x="310" y="74" fill="#0f172a" font-size="11" font-weight="bold" text-anchor="middle">F</text>
+          <text x="230" y="100" fill="#fbbf24" font-size="10" font-weight="bold" text-anchor="middle">Symmetric Hydrogen Bond (113 pm each)</text>
+        </svg>
       </div>
     </div>`;
 }
