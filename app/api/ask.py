@@ -69,11 +69,14 @@ async def ask_question(request: AskRequest) -> AskResponse:
             ),
         )
 
+    # ── Clean question query ──────────────────────────────────────────────────
+    clean_question = request.question.strip().strip('*"`\'')
+
     # ── Retrieve ──────────────────────────────────────────────────────────────
 
     try:
         documents, scores = retriever.retrieve(
-            question=request.question,
+            question=clean_question,
             session_id=request.session_id,
             k=request.top_k,
         )
@@ -96,7 +99,7 @@ async def ask_question(request: AskRequest) -> AskResponse:
     # ── Generate answer ───────────────────────────────────────────────────────
 
     prompt = PromptBuilder.build(
-        question=request.question,
+        question=clean_question,
         documents=documents,
         allow_external_examples=request.allow_external_examples,
     )
@@ -104,7 +107,13 @@ async def ask_question(request: AskRequest) -> AskResponse:
     try:
         llm_response = llm_client.generate(prompt)
     except Exception as exc:
+        err_str = str(exc)
         logger.exception("Gemini API call failed.")
+        if "429" in err_str or "ResourceExhausted" in err_str:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Gemini API rate limit reached (Free tier quota: 20 requests/minute). Please wait 30 seconds before asking again.",
+            )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"LLM generation failed: {exc}",

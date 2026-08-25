@@ -39,7 +39,7 @@ class ContextRetriever:
         self,
         chunk_size: int = 700,
         chunk_overlap: int = 100,
-        top_k: int = 5,
+        top_k: int = 8,
         vector_db_dir: str = "vector_db",
         embedding_model: str = "BAAI/bge-base-en-v1.5",
     ) -> None:

@@ -651,7 +651,7 @@ function appendAssistantMessage(answer, sources, topics, equations = [], structu
   // ── Molecular Geometry & Hybridisation Cards
   let structuresHtml = '';
   if (structures.length > 0 && !isFallback) {
-    const cards = structures.map((st) => {
+    const cards = structures.map((st, sIndex) => {
       const molRendered = renderChemEquation(st.molecule || '');
       const hybrid = st.hybridisation
         ? `<span class="structure-badge structure-badge--hybrid"><span class="badge-icon">⚡</span> Hybridisation: <strong>${escapeHtml(st.hybridisation)}</strong></span>`
@@ -675,7 +675,8 @@ function appendAssistantMessage(answer, sources, topics, equations = [], structu
         ? `<div class="spec-item"><span class="spec-label">Lone Pairs</span><span class="spec-value">${st.lone_pairs}</span></div>`
         : '';
 
-      let diagramHtml = buildStructureDiagram(st);
+      const uid = 'mol3d_' + Date.now() + '_' + sIndex;
+      let diagramHtml = buildStructureDiagram(st, uid);
 
       return `
         <div class="molecular-structure-card">
@@ -764,6 +765,9 @@ function appendAssistantMessage(answer, sources, topics, equations = [], structu
   div.innerHTML = bubbleHtml + structuresHtml + equationsHtml + sourcesHtml + topicsHtml;
 
   dom.chatContainer().appendChild(div);
+
+  // Mount 3Dmol.js viewers for any 3D molecular structures
+  mount3DViewers(div);
 
   // Attach click handlers for source chips
   div.querySelectorAll('.source-chip').forEach((btn) => {
@@ -1101,21 +1105,46 @@ function sanitizeLatexFromText(text) {
  */
 /**
  * ══════════════════════════════════════════════════════════════════════
- * 12TH STANDARD / NCERT CHEMISTRY VISUALIZATION SUITE
+ * 3DMOL.JS INTERACTIVE 3D MOLECULAR VIEWER & NCERT SUITE
  * ══════════════════════════════════════════════════════════════════════
  */
 
+// ── Built-in High-Accuracy 3D XYZ Molecular Coordinate Database ────────
+const MOL_3D_XYZ_DATABASE = {
+  'CH4': `5\nMethane\nC 0.0000 0.0000 0.0000\nH 0.6291 0.6291 0.6291\nH -0.6291 -0.6291 0.6291\nH -0.6291 0.6291 -0.6291\nH 0.6291 -0.6291 -0.6291`,
+  'NH3': `4\nAmmonia\nN 0.0000 0.0000 0.1165\nH 0.0000 0.9397 -0.2718\nH 0.8138 -0.4699 -0.2718\nH -0.8138 -0.4699 -0.2718`,
+  'H2O': `3\nWater\nO 0.0000 0.0000 0.1173\nH 0.0000 0.7572 -0.4692\nH 0.0000 -0.7572 -0.4692`,
+  'PCL5': `6\nPhosphorus Pentachloride\nP 0.0000 0.0000 0.0000\nCl 0.0000 0.0000 2.1400\nCl 0.0000 0.0000 -2.1400\nCl 2.0200 0.0000 0.0000\nCl -1.0100 1.7494 0.0000\nCl -1.0100 -1.7494 0.0000`,
+  'SF6': `7\nSulfur Hexafluoride\nS 0.0000 0.0000 0.0000\nF 1.5640 0.0000 0.0000\nF -1.5640 0.0000 0.0000\nF 0.0000 1.5640 0.0000\nF 0.0000 -1.5640 0.0000\nF 0.0000 0.0000 1.5640\nF 0.0000 0.0000 -1.5640`,
+  'XEF4': `5\nXenon Tetrafluoride\nXe 0.0000 0.0000 0.0000\nF 1.9500 0.0000 0.0000\nF -1.9500 0.0000 0.0000\nF 0.0000 1.9500 0.0000\nF 0.0000 -1.9500 0.0000`,
+  'SF4': `5\nSulfur Tetrafluoride\nS 0.0000 0.0000 0.0000\nF 0.0000 0.0000 1.6460\nF 0.0000 0.0000 -1.6460\nF 1.5450 0.0000 0.0000\nF -1.5450 0.0000 0.0000`,
+  'CLF3': `4\nChlorine Trifluoride\nCl 0.0000 0.0000 0.0000\nF 0.0000 0.0000 1.6980\nF 0.0000 0.0000 -1.6980\nF 1.5980 0.0000 0.0000`,
+  'BF3': `4\nBoron Trifluoride\nB 0.0000 0.0000 0.0000\nF 0.0000 1.3130 0.0000\nF 1.1371 -0.6565 0.0000\nF -1.1371 -0.6565 0.0000`,
+  'CO2': `3\nCarbon Dioxide\nC 0.0000 0.0000 0.0000\nO 1.1600 0.0000 0.0000\nO -1.1600 0.0000 0.0000`,
+  'BECL2': `3\nBeryllium Chloride\nBe 0.0000 0.0000 0.0000\nCl 1.7700 0.0000 0.0000\nCl -1.7700 0.0000 0.0000`,
+  'CCL4': `5\nCarbon Tetrachloride\nC 0.0000 0.0000 0.0000\nCl 1.0200 1.0200 1.0200\nCl -1.0200 -1.0200 1.0200\nCl -1.0200 1.0200 -1.0200\nCl 1.0200 -1.0200 -1.0200`,
+  'C2H6': `8\nEthane\nC 0.0000 0.0000 0.7650\nC 0.0000 0.0000 -0.7650\nH 0.0000 1.0200 1.1600\nH 0.8833 -0.5100 1.1600\nH -0.8833 -0.5100 1.1600\nH 0.0000 -1.0200 -1.1600\nH -0.8833 0.5100 -1.1600\nH 0.8833 0.5100 -1.1600`,
+  'C2H4': `6\nEthene\nC 0.0000 0.0000 0.6695\nC 0.0000 0.0000 -0.6695\nH 0.0000 0.9230 1.2320\nH 0.0000 -0.9230 1.2320\nH 0.0000 0.9230 -1.2320\nH 0.0000 -0.9230 -1.2320`,
+  'C2H2': `4\nEthyne\nC 0.0000 0.0000 0.6030\nC 0.0000 0.0000 -0.6030\nH 0.0000 0.0000 1.6660\nH 0.0000 0.0000 -1.6660`,
+  'C6H6': `12\nBenzene\nC 1.3970 0.0000 0.0000\nC 0.6985 1.2098 0.0000\nC -0.6985 1.2098 0.0000\nC -1.3970 0.0000 0.0000\nC -0.6985 -1.2098 0.0000\nC 0.6985 -1.2098 0.0000\nH 2.4770 0.0000 0.0000\nH 1.2385 2.1451 0.0000\nH -1.2385 2.1451 0.0000\nH -2.4770 0.0000 0.0000\nH -1.2385 -2.1451 0.0000\nH 1.2385 -2.1451 0.0000`,
+  'SO2': `3\nSulfur Dioxide\nS 0.0000 0.0000 0.1250\nO 0.0000 1.2800 -0.4900\nO 0.0000 -1.2800 -0.4900`,
+  'SO3': `4\nSulfur Trioxide\nS 0.0000 0.0000 0.0000\nO 0.0000 1.4200 0.0000\nO 1.2297 -0.7100 0.0000\nO -1.2297 -0.7100 0.0000`,
+  'BRF5': `6\nBromine Pentafluoride\nBr 0.0000 0.0000 0.0000\nF 0.0000 0.0000 1.6890\nF 1.7740 0.0000 0.0000\nF -1.7740 0.0000 0.0000\nF 0.0000 1.7740 0.0000\nF 0.0000 -1.7740 0.0000`,
+  'IF7': `8\nIodine Heptafluoride\nI 0.0000 0.0000 0.0000\nF 0.0000 0.0000 1.7800\nF 0.0000 0.0000 -1.7800\nF 1.8300 0.0000 0.0000\nF 0.5655 1.7404 0.0000\nF -1.4805 1.0756 0.0000\nF -1.4805 -1.0756 0.0000\nF 0.5655 -1.7404 0.0000`
+};
+
 /**
  * Main dispatcher for all molecular structure visualizations:
- * 1. NCERT 3-Column Molecular Orbital (MO) Energy Level Diagrams
- * 2. Special 12th Grade Inorganic Structures (Banana bonds, Butterfly peroxides, Ozone resonance)
- * 3. 2D/3D VSEPR Molecular Geometries with Wedge-Dash bonds & Lone-pair lobes
+ * 1. Special 12th Grade Inorganic Structures (Banana bonds, Butterfly peroxides, Ozone resonance)
+ * 2. NCERT 3-Column Molecular Orbital (MO) Energy Level Diagrams
+ * 3. 3Dmol.js Interactive 3D Molecular Model (Ball & Stick, Space-Fill, Stick)
  */
-function buildStructureDiagram(st) {
+function buildStructureDiagram(st, uniqueId) {
   const mol = (st.molecule || '').replace(/[_{}]/g, '').toUpperCase();
   const rawMol = st.molecule || '';
   const ascii = st.diagram_ascii || '';
   const geom = (st.geometry || '').toLowerCase();
+  const uid = uniqueId || 'mol3d_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
 
   // 1. Check for Special NCERT Inorganic Structures
   if (/B2H6|DIBORANE/i.test(mol)) {
@@ -1143,9 +1172,9 @@ function buildStructureDiagram(st) {
     return buildNCERTMODiagram(st);
   }
 
-  // 3. Render VSEPR Vector Geometry (Ball-and-stick / Wedge-Dash with lone pairs)
+  // 3. Render 3Dmol.js Interactive 3D Viewer for Molecular Geometry & Hybridisation
   if (st.geometry && st.geometry !== 'N/A' && st.geometry !== 'Linear (MO Theory)') {
-    return buildVSEPRGeometryDiagram(st);
+    return build3DMolecularViewer(st, uid);
   }
 
   // 4. Fallback to ASCII / Clean formatted code block if available
@@ -1157,6 +1186,178 @@ function buildStructureDiagram(st) {
       </div>`;
   }
   return '';
+}
+
+/**
+ * ── 3DMOL.JS INTERACTIVE 3D MOLECULAR VIEWER CARD ─────────────────
+ * Generates an interactive 3D WebGL viewport with student-friendly controls.
+ */
+function build3DMolecularViewer(st, uid) {
+  const molRaw = st.molecule || '';
+  const molKey = molRaw.toUpperCase().replace(/[_{}]/g, '');
+  const geomText = st.geometry || 'Molecular Geometry';
+  const hybridText = st.hybridisation ? ` • ${st.hybridisation}` : '';
+
+  return `
+    <div class="structure-diagram-box viewer-3d-card" data-viewer-id="${uid}">
+      <div class="viewer-3d-header">
+        <div class="viewer-3d-title">
+          <span class="viewer-3d-badge">🌐 3D Interactive Model</span>
+          <span class="viewer-3d-molname">${renderChemEquationFallback(molRaw)} (${escapeHtml(geomText)}${escapeHtml(hybridText)})</span>
+        </div>
+        <div class="viewer-3d-controls">
+          <button class="btn-3d-ctrl btn-3d-spin active" data-target="${uid}" title="Toggle Auto-Rotation">🔄 Spin</button>
+          <div class="btn-3d-group">
+            <button class="btn-3d-ctrl btn-3d-style active" data-target="${uid}" data-style="ballandstick" title="Ball & Stick">Ball & Stick</button>
+            <button class="btn-3d-ctrl btn-3d-style" data-target="${uid}" data-style="sphere" title="Space-Filling (CPK)">Space-Fill</button>
+            <button class="btn-3d-ctrl btn-3d-style" data-target="${uid}" data-style="stick" title="Stick / Wireframe">Stick</button>
+          </div>
+          <button class="btn-3d-ctrl btn-3d-reset" data-target="${uid}" title="Reset View Orientation">🎯 Reset</button>
+        </div>
+      </div>
+
+      <!-- 3D Viewport Container -->
+      <div id="${uid}" class="viewer-3d-viewport" data-molkey="${molKey}" data-molraw="${escapeHtml(molRaw)}">
+        <div class="viewer-3d-loading">
+          <span class="loading-spinner"></span> Loading 3D Molecular Model...
+        </div>
+      </div>
+
+      <div class="viewer-3d-footer">
+        <span class="viewer-3d-hint">👆 Left Click + Drag to rotate • Scroll to zoom • Right Click to pan</span>
+      </div>
+    </div>`;
+}
+
+// Active 3Dmol viewer instances stored by container ID
+const active3DViewers = new Map();
+
+/**
+ * Mount all 3Dmol.js viewers inside a parent DOM container
+ */
+function mount3DViewers(parentEl) {
+  if (!parentEl) return;
+  const viewports = parentEl.querySelectorAll('.viewer-3d-viewport');
+  if (viewports.length === 0) return;
+
+  viewports.forEach((vp) => {
+    const id = vp.id;
+    const molKey = vp.dataset.molkey;
+    const molRaw = vp.dataset.molraw;
+
+    // Check if $3Dmol library is loaded in window
+    if (typeof window.$3Dmol === 'undefined') {
+      console.warn('3Dmol.js not loaded, rendering 2D VSEPR fallback.');
+      vp.innerHTML = buildVSEPRGeometryDiagram({ molecule: molRaw, geometry: '3D Shape' });
+      return;
+    }
+
+    try {
+      // Clear loading indicator
+      vp.innerHTML = '';
+
+      // Initialize 3Dmol viewer
+      const config = { backgroundColor: '#090e1a' };
+      const viewer = window.$3Dmol.createViewer(vp, config);
+
+      // Fetch or use built-in XYZ coordinates
+      let xyzData = MOL_3D_XYZ_DATABASE[molKey];
+      if (!xyzData) {
+        // Find best match in DB
+        const matchKey = Object.keys(MOL_3D_XYZ_DATABASE).find(k => molKey.includes(k) || k.includes(molKey));
+        xyzData = matchKey ? MOL_3D_XYZ_DATABASE[matchKey] : MOL_3D_XYZ_DATABASE['CH4'];
+      }
+
+      // Add model to viewer
+      const model = viewer.addModel(xyzData, 'xyz');
+
+      // Default style: Ball & Stick with CPK Jmol coloring
+      viewer.setStyle({}, {
+        stick: { radius: 0.14, colorscheme: 'Jmol' },
+        sphere: { scale: 0.28, colorscheme: 'Jmol' }
+      });
+
+      // Add element property labels for students
+      viewer.addPropertyLabels('elem', {}, {
+        fontSize: 11,
+        fontColor: '#f8fafc',
+        backgroundOpacity: 0.65,
+        backgroundColor: '#0f172a',
+        inFront: true
+      });
+
+      viewer.zoomTo();
+      viewer.render();
+
+      // Enable auto-rotation
+      viewer.spin(true, 0.6);
+
+      // Store instance and state
+      active3DViewers.set(id, {
+        viewer,
+        isSpinning: true,
+        currentStyle: 'ballandstick'
+      });
+
+      // Attach button controls for this viewer card
+      const card = vp.closest('.viewer-3d-card');
+      if (card) {
+        // 1. Spin Button
+        const spinBtn = card.querySelector('.btn-3d-spin');
+        if (spinBtn) {
+          spinBtn.addEventListener('click', () => {
+            const inst = active3DViewers.get(id);
+            if (!inst) return;
+            inst.isSpinning = !inst.isSpinning;
+            inst.viewer.spin(inst.isSpinning, 0.6);
+            spinBtn.classList.toggle('active', inst.isSpinning);
+            spinBtn.textContent = inst.isSpinning ? '🔄 Spin' : '⏸ Pause';
+          });
+        }
+
+        // 2. Style Buttons (Ball & Stick, Space-Fill, Stick)
+        card.querySelectorAll('.btn-3d-style').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const inst = active3DViewers.get(id);
+            if (!inst) return;
+            const style = btn.dataset.style;
+            card.querySelectorAll('.btn-3d-style').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            if (style === 'sphere') {
+              // Space-Filling (CPK radii)
+              inst.viewer.setStyle({}, { sphere: { scale: 0.85, colorscheme: 'Jmol' } });
+            } else if (style === 'stick') {
+              // Stick / Wireframe
+              inst.viewer.setStyle({}, { stick: { radius: 0.22, colorscheme: 'Jmol' } });
+            } else {
+              // Ball & Stick
+              inst.viewer.setStyle({}, {
+                stick: { radius: 0.14, colorscheme: 'Jmol' },
+                sphere: { scale: 0.28, colorscheme: 'Jmol' }
+              });
+            }
+            inst.viewer.render();
+            inst.currentStyle = style;
+          });
+        });
+
+        // 3. Reset Button
+        const resetBtn = card.querySelector('.btn-3d-reset');
+        if (resetBtn) {
+          resetBtn.addEventListener('click', () => {
+            const inst = active3DViewers.get(id);
+            if (!inst) return;
+            inst.viewer.zoomTo();
+            inst.viewer.render();
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error initializing 3Dmol viewer:', err);
+      vp.innerHTML = buildVSEPRGeometryDiagram({ molecule: molRaw, geometry: '3D Shape' });
+    }
+  });
 }
 
 /**

@@ -132,18 +132,33 @@ class GeminiLLMClient:
 
     @retry(
         retry=retry_if_exception_type(Exception),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=2, min=3, max=35),
         before_sleep=before_sleep_log(logger, 20),  # 20 = logging.WARNING
         reraise=True,
     )
     def _call_gemini(self, prompt: str) -> str:
         """Make the API call with retry logic. Returns raw text."""
+        import time
         logger.info("Calling Gemini API (model: %s).", self._model_name)
-        response = self._model.generate_content(prompt)
-        raw_text = response.text
-        logger.info("Gemini response received (%d chars).", len(raw_text))
-        return raw_text
+        try:
+            response = self._model.generate_content(prompt)
+            raw_text = response.text
+            logger.info("Gemini response received (%d chars).", len(raw_text))
+            return raw_text
+        except Exception as exc:
+            err_str = str(exc)
+            if "429" in err_str or "ResourceExhausted" in err_str:
+                # Extract suggested retry delay if present in error message
+                delay_match = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", err_str)
+                if delay_match:
+                    sleep_sec = int(delay_match.group(1)) + 1
+                    logger.warning("Gemini 429 quota reached. Backing off for %d seconds...", sleep_sec)
+                    time.sleep(sleep_sec)
+                    # Retry immediately after waiting out the quota
+                    response = self._model.generate_content(prompt)
+                    return response.text
+            raise
 
     def _parse_response(self, raw: str) -> LLMResponse:
         """

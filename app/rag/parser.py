@@ -298,7 +298,8 @@ class PDFParser:
     @staticmethod
     def _clean_text(text: str) -> str:
         """
-        Normalize whitespace without collapsing paragraph breaks, and clean
+        Normalize whitespace without collapsing paragraph breaks, clean
+        repetitive coaching institute boilerplate headers/footers, and fix
         common PDF extraction artifacts for chemical arrows and symbols.
         """
         import re
@@ -313,6 +314,24 @@ class PDFParser:
 
         # Collapse horizontal whitespace (spaces/tabs) without touching newlines
         text = re.sub(r"[ \t]+", " ", text)
-        # Remove lines that are purely whitespace
-        lines = [line for line in text.splitlines() if line.strip()]
+        
+        # Filter out repetitive document headers, footers, and contact details
+        # that dilute semantic chunk embeddings across all pages
+        boilerplate_patterns = [
+            r"Corporate Office:\s*CG Tower.*",
+            r"Website\s*:\s*www\.resonance\.ac\.in.*",
+            r"Toll Free\s*:\s*1800.*",
+            r"ADVCBO\s*-\s*\d+",
+            r"^Chemical Bonding$"
+        ]
+        
+        lines = []
+        for line in text.splitlines():
+            l_strip = line.strip()
+            if not l_strip:
+                continue
+            if any(re.search(pat, l_strip, re.IGNORECASE) for pat in boilerplate_patterns):
+                continue
+            lines.append(l_strip)
+
         return "\n".join(lines)
