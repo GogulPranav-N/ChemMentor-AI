@@ -120,6 +120,8 @@ class PDFParser:
         with doc:
             total = len(doc)
             logger.info("Total pages detected: %d", total)
+            
+            seen_xrefs = set()
 
             for idx in range(total):
                 page = doc[idx]
@@ -129,7 +131,7 @@ class PDFParser:
                 # Extract and describe images on this page
                 if self._enable_image_extraction:
                     image_descriptions = self._extract_and_describe_images(
-                        doc, page, idx + 1
+                        doc, page, idx + 1, seen_xrefs
                     )
                     if image_descriptions:
                         text = text + "\n\n" + "\n\n".join(image_descriptions)
@@ -184,6 +186,7 @@ class PDFParser:
         doc: fitz.Document,
         page: fitz.Page,
         page_number: int,
+        seen_xrefs: set,
     ) -> List[str]:
         """
         Extract images from a PDF page and describe them using Gemini Vision.
@@ -203,13 +206,20 @@ class PDFParser:
             return descriptions
 
         processed = 0
-
+        qualified = 0
+        
         for img_info in image_list:
             if processed >= _MAX_IMAGES_PER_PAGE:
                 break
 
             try:
                 xref = img_info[0]
+                
+                # Global deduplication
+                if xref in seen_xrefs:
+                    continue
+                seen_xrefs.add(xref)
+                
                 rects = page.get_image_rects(xref)
                 if not rects:
                     continue
@@ -224,28 +234,36 @@ class PDFParser:
                     continue
 
                 # Filter out tiny logos / icons
-                if r.width < 100 or r.height < 50:
+                if r.width < _MIN_IMAGE_WIDTH or r.height < _MIN_IMAGE_HEIGHT:
                     continue
 
                 # Filter out full-page background watermark overlays
                 if r.width > 400 and r.height > 400:
                     continue
+                    
+                qualified += 1
 
                 # Render the crisp on-page pixmap for maximum chemical diagram readability
-                pix = page.get_pixmap(clip=r, dpi=200)
+                pix = page.get_pixmap(clip=r, dpi=150)
                 image_bytes = pix.tobytes()
                 image_ext = "png"
 
+                processed += 1 # Strict counter increment before API call
+                
+                import time
+                t0 = time.perf_counter()
                 description = self._describe_image(
-                    image_bytes, image_ext, page_number, processed + 1
+                    image_bytes, image_ext, page_number, processed
                 )
+                t1 = time.perf_counter()
+                
                 if description:
+                    logger.info("Vision API call took %.1fs for image %d (size: %.1f KB)", t1 - t0, xref, len(image_bytes) / 1024)
                     formatted = (
                         f"[IMAGE DESCRIPTION - Page {page_number}, "
-                        f"Image {processed + 1}]: {description}"
+                        f"Image {processed}]: {description}"
                     )
                     descriptions.append(formatted)
-                    processed += 1
 
             except Exception as exc:
                 logger.debug(
@@ -276,6 +294,17 @@ class PDFParser:
         import time
         import re
         import PIL.Image
+        import hashlib
+        
+        # Local Disk Caching
+        cache_dir = Path(tempfile.gettempdir()) / "chementor_vision_cache"
+        cache_dir.mkdir(exist_ok=True, parents=True)
+        image_hash = hashlib.md5(image_bytes).hexdigest()
+        cache_file = cache_dir / f"{image_hash}.txt"
+        
+        if cache_file.exists():
+            logger.debug("Cache hit for image on page %d, index %d", page_number, image_index)
+            return cache_file.read_text(encoding="utf-8")
 
         model = self._get_vision_model()
         if model is None:
@@ -304,6 +333,10 @@ class PDFParser:
                 if response and response.text:
                     description = response.text.strip()
                     if len(description) > 20:
+                        try:
+                            cache_file.write_text(description, encoding="utf-8")
+                        except Exception as e:
+                            logger.warning("Failed to write cache for page %d: %s", page_number, e)
                         return description
                 return None
 

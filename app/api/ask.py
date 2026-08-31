@@ -69,8 +69,14 @@ async def ask_question(request: AskRequest) -> AskResponse:
             ),
         )
 
-    # ── Clean question query ──────────────────────────────────────────────────
-    clean_question = request.question.strip().strip('*"`\'')
+    # ── Clean & sanitize question query ───────────────────────────────────────
+    import re
+    clean_question = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", request.question).strip().strip('*"`\'')
+    if not clean_question:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Question must not be empty or contain only control characters.",
+        )
 
     # ── Retrieve ──────────────────────────────────────────────────────────────
 
@@ -113,6 +119,7 @@ async def ask_question(request: AskRequest) -> AskResponse:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Gemini API rate limit reached (Free tier quota: 20 requests/minute). Please wait 30 seconds before asking again.",
+                headers={"Retry-After": "30"},
             )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

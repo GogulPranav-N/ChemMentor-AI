@@ -7,6 +7,9 @@
     content="Chemistry AI Tutor — Ask questions about your chemistry textbook and get grounded, cited answers powered by RAG and Google Gemini." />
   <title>Chemistry AI Tutor</title>
 
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚗️</text></svg>" />
+
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -27,6 +30,11 @@
   <link rel="stylesheet" href="/static/style.css?v={{ cache_buster }}" />
 </head>
 <body>
+  <noscript>
+    <div style="padding: 1rem; background: #ef4444; color: white; text-align: center; font-weight: bold;">
+      JavaScript is required to run ChemMentor. Please enable JavaScript in your browser.
+    </div>
+  </noscript>
 
   <!-- ═══════════════════════ HEADER ═══════════════════════ -->
   <header class="app-header" role="banner">
@@ -184,7 +192,10 @@
           <span class="toggle-slider"></span>
           <span class="toggle-text">Allow external examples</span>
         </label>
-        <p class="input-hint">Answers use only information supported by your uploaded document.</p>
+        <div style="display: flex; align-items: center; gap: 12px; margin-left: auto;">
+          <span id="char-counter" class="char-counter" style="font-size: 0.72rem; color: var(--clr-text-muted); font-family: var(--font-mono);">0 / 1000</span>
+          <p class="input-hint" style="margin: 0;">Answers use only information supported by your uploaded document.</p>
+        </div>
       </div>
 
     </section>

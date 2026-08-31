@@ -29,6 +29,7 @@ router = APIRouter(tags=["Upload"])
 _ALLOWED_CONTENT_TYPES = {"application/pdf", "application/x-pdf"}
 _MAX_FILE_SIZE_MB = 50
 _MAX_FILE_SIZE_BYTES = _MAX_FILE_SIZE_MB * 1024 * 1024
+_MIN_FILE_SIZE_BYTES = 100  # A valid empty PDF header is at least ~100 bytes
 
 
 @router.post(
@@ -66,6 +67,12 @@ async def upload_pdf(
 
     # Read file content for size check
     content = await file.read()
+    if len(content) < _MIN_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty or corrupted (file size is too small to be a valid PDF).",
+        )
+
     if len(content) > _MAX_FILE_SIZE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -187,6 +194,12 @@ async def upload_multiple_pdfs(
             )
 
         content = await file.read()
+        if len(content) < _MIN_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File '{file.filename}' is empty or corrupted (file size is too small to be a valid PDF).",
+            )
+
         if len(content) > _MAX_FILE_SIZE_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,

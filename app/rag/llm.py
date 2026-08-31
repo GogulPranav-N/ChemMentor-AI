@@ -10,6 +10,7 @@ Wraps google-generativeai with:
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -80,7 +81,8 @@ class GeminiLLMClient:
     def __init__(
         self,
         api_key: str,
-        model_name: str = "gemini-1.5-flash",
+        model_name: str = "gemini-3.5-flash",
+        fallback_model_name: str | None = None,
         max_output_tokens: int | None = None,
         temperature: float = 0.2,
     ) -> None:
@@ -91,6 +93,9 @@ class GeminiLLMClient:
             )
         genai.configure(api_key=api_key)
         self._model_name = model_name
+        self._fallback_model_name = fallback_model_name or os.getenv(
+            "GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite"
+        )
 
         config_kwargs = {
             "temperature": temperature,
@@ -105,7 +110,20 @@ class GeminiLLMClient:
             model_name=model_name,
             generation_config=generation_config,
         )
-        logger.info("Gemini client initialised. Model: %s", model_name)
+        self._fallback_model = None
+        if self._fallback_model_name and self._fallback_model_name != model_name:
+            try:
+                self._fallback_model = genai.GenerativeModel(
+                    model_name=self._fallback_model_name,
+                    generation_config=generation_config,
+                )
+                logger.info(
+                    "Fallback Gemini model initialised: %s", self._fallback_model_name
+                )
+            except Exception as e:
+                logger.warning("Could not initialise fallback Gemini model: %s", e)
+
+        logger.info("Gemini client initialised. Primary Model: %s", model_name)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -117,7 +135,8 @@ class GeminiLLMClient:
         """
         Send a prompt to Gemini and return a parsed LLMResponse.
 
-        Retries up to 3 times with exponential back-off on transient errors.
+        Retries up to 3 times with exponential back-off on transient errors,
+        and fails over to the fallback model if primary hits quota limits.
 
         Args:
             prompt: Fully assembled prompt string from PromptBuilder.
@@ -132,14 +151,15 @@ class GeminiLLMClient:
 
     @retry(
         retry=retry_if_exception_type(Exception),
-        stop=stop_after_attempt(4),
-        wait=wait_exponential(multiplier=2, min=3, max=35),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=2, max=15),
         before_sleep=before_sleep_log(logger, 20),  # 20 = logging.WARNING
         reraise=True,
     )
     def _call_gemini(self, prompt: str) -> str:
-        """Make the API call with retry logic. Returns raw text."""
+        """Make the API call with retry and fallback logic. Returns raw text."""
         import time
+
         logger.info("Calling Gemini API (model: %s).", self._model_name)
         try:
             response = self._model.generate_content(prompt)
@@ -149,13 +169,28 @@ class GeminiLLMClient:
         except Exception as exc:
             err_str = str(exc)
             if "429" in err_str or "ResourceExhausted" in err_str:
+                # Try fallback model if available before long backoff
+                if self._fallback_model:
+                    try:
+                        logger.warning(
+                            "Primary model %s hit 429 quota. Failing over to fallback model %s...",
+                            self._model_name,
+                            self._fallback_model_name,
+                        )
+                        response = self._fallback_model.generate_content(prompt)
+                        raw_text = response.text
+                        logger.info("Fallback model response received (%d chars).", len(raw_text))
+                        return raw_text
+                    except Exception as fb_exc:
+                        logger.warning("Fallback model %s failed: %s", self._fallback_model_name, fb_exc)
+
                 # Extract suggested retry delay if present in error message
                 delay_match = re.search(r"retry_delay\s*\{\s*seconds:\s*(\d+)", err_str)
                 if delay_match:
-                    sleep_sec = int(delay_match.group(1)) + 1
+                    sleep_sec = min(int(delay_match.group(1)) + 1, 15)
                     logger.warning("Gemini 429 quota reached. Backing off for %d seconds...", sleep_sec)
                     time.sleep(sleep_sec)
-                    # Retry immediately after waiting out the quota
+                    # Retry once after short backoff
                     response = self._model.generate_content(prompt)
                     return response.text
             raise
@@ -415,8 +450,12 @@ class GeminiLLMClient:
     def _is_real_reaction(eq_str: str) -> bool:
         """Check if a string represents an actual chemical reaction (has an arrow)."""
         # Must contain a reaction arrow to be considered a real reaction
-        reaction_arrows = ['→', '⇌', '⟶', '←', '->', '<->', '=>', '\\rightarrow',
-                           '\\longrightarrow', '\\rightleftharpoons']
+        reaction_arrows = [
+            '→', '⇌', '⟶', '←', '⟷', '->', '<->', '<=>', '=>',
+            '\\xrightarrow', '\\xleftarrow', '\\rightarrow', '\\longrightarrow',
+            '\\rightleftharpoons', '\\leftrightarrow', '\\longleftrightarrow',
+            '\\ce'
+        ]
         return any(arrow in eq_str for arrow in reaction_arrows)
 
     @staticmethod
@@ -426,7 +465,12 @@ class GeminiLLMClient:
         pattern = _re.compile(r'\$\$(.+?)\$\$')
         matches = pattern.findall(answer)
         reactions = []
-        reaction_arrows = ['→', '⇌', '⟶', '←', '->', '<=>', '=>']
+        reaction_arrows = [
+            '→', '⇌', '⟶', '←', '⟷', '->', '<->', '<=>', '=>',
+            '\\xrightarrow', '\\xleftarrow', '\\rightarrow', '\\longrightarrow',
+            '\\rightleftharpoons', '\\leftrightarrow', '\\longleftrightarrow',
+            '\\ce'
+        ]
         for match in matches:
             eq_str = match.strip()
             if any(arrow in eq_str for arrow in reaction_arrows):

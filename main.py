@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import warnings
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,6 +32,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.api.ask import router as ask_router
 from app.api.health import router as health_router
+from app.api.session import router as session_router
 from app.api.upload import router as upload_router
 from app.models.schemas import ErrorResponse
 from app.rag.embeddings import EmbeddingService
@@ -100,7 +102,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         app_state["llm_client"] = GeminiLLMClient(
             api_key=api_key,
-            model_name=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+            model_name=os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
             max_output_tokens=None,  # Do not set output token limit to avoid truncation bugs in current API
         )
     app_state["active_session_id"] = None
@@ -131,9 +133,12 @@ app = FastAPI(
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 
+_ENV = os.getenv("ENVIRONMENT", "development").lower()
+_CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",") if _ENV == "production" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # tighten this in production
+    allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -170,20 +175,22 @@ templates = Jinja2Templates(directory=str(_BASE / "app" / "templates"))
 
 
 @app.middleware("http")
-async def add_no_cache_headers(request: Request, call_next):
-    """Disable caching for static assets during local development."""
+async def handle_static_cache_headers(request: Request, call_next):
+    """Set appropriate cache headers for static assets based on environment."""
     response = await call_next(request)
     if request.url.path.startswith("/static"):
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
+        if _ENV == "production":
+            response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=3600"
+        else:
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
     return response
 
 
 @app.get("/", include_in_schema=False)
 async def serve_ui(request: Request):
     """Serve the single-page UI with automatic cache-busting."""
-    import time
     return templates.TemplateResponse(
         "index.html",
         {"request": request, "cache_buster": int(time.time())},
@@ -195,6 +202,7 @@ async def serve_ui(request: Request):
 app.include_router(health_router)
 app.include_router(upload_router)
 app.include_router(ask_router)
+app.include_router(session_router)
 
 
 # ── Dev entrypoint ────────────────────────────────────────────────────────────

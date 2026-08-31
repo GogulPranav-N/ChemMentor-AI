@@ -337,7 +337,42 @@ function markFileUploaded(index) {
 
 // ══════════════════════════════════════════════════════
 // ASK — API CALL
-// ══════════════════════════════════════════════════════
+let rateLimitTimer = null;
+
+function startRateLimitCountdown(seconds) {
+  if (rateLimitTimer) clearInterval(rateLimitTimer);
+  let remaining = seconds;
+  dom.askBtn().disabled = true;
+  const updateBtn = () => {
+    if (remaining <= 0) {
+      clearInterval(rateLimitTimer);
+      rateLimitTimer = null;
+      dom.askBtn().disabled = false;
+      dom.askBtn().innerHTML = '<span aria-hidden="true">➤</span>';
+      showToast('Rate limit reset. You can ask again.', 'success');
+    } else {
+      dom.askBtn().innerHTML = `<span style="font-size:0.75rem;font-weight:bold;">${remaining}s</span>`;
+      remaining--;
+    }
+  };
+  updateBtn();
+  rateLimitTimer = setInterval(updateBtn, 1000);
+}
+
+function updateCharCounter() {
+  const input = dom.questionInput();
+  const counter = document.getElementById('char-counter');
+  if (!input || !counter) return;
+  const len = input.value.length;
+  counter.textContent = `${len} / 1000`;
+  if (len >= 950) {
+    counter.style.color = '#f87171';
+  } else if (len >= 800) {
+    counter.style.color = '#fbbf24';
+  } else {
+    counter.style.color = 'var(--clr-text-muted)';
+  }
+}
 
 async function handleAsk() {
   const question = dom.questionInput().value.trim();
@@ -346,6 +381,7 @@ async function handleAsk() {
   state.isAsking = true;
   dom.askBtn().disabled = true;
   dom.questionInput().value = '';
+  updateCharCounter();
   autoResizeTextarea(dom.questionInput());
 
   // Append user message
@@ -369,9 +405,19 @@ async function handleAsk() {
         allow_external_examples: allowExternalExamples,
       }),
     });
-    const data = await res.json();
+    
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error('Server returned an unparseable response. Please check your connection.');
+    }
 
     if (!res.ok) {
+      if (res.status === 429) {
+        const retryAfter = parseInt(res.headers.get('Retry-After') || '30', 10);
+        startRateLimitCountdown(retryAfter);
+      }
       throw new Error(data.detail || 'Failed to get an answer.');
     }
 
@@ -393,7 +439,9 @@ async function handleAsk() {
     showToast(err.message, 'error');
   } finally {
     state.isAsking = false;
-    dom.askBtn().disabled = false;
+    if (!rateLimitTimer) {
+      dom.askBtn().disabled = false;
+    }
     dom.questionInput().focus();
   }
 }
@@ -2279,6 +2327,13 @@ function initKeyboardShortcuts() {
 }
 
 function resetSession() {
+  const oldSessionId = state.sessionId;
+  if (oldSessionId) {
+    fetch(`/session/${oldSessionId}`, { method: 'DELETE' }).catch((err) => {
+      console.debug('Session cleanup error:', err);
+    });
+  }
+
   state.sessionId = null;
   state.conversation = [];
   dom.sessionCard().classList.add('hidden');
@@ -2289,6 +2344,8 @@ function resetSession() {
   dom.emptyState().classList.remove('hidden');
   dom.questionInput().disabled = true;
   dom.askBtn().disabled = true;
+  dom.questionInput().value = '';
+  updateCharCounter();
   clearFiles();
   showToast('Session cleared. Start fresh by uploading new PDFs.', 'info');
 }
@@ -2313,6 +2370,7 @@ function init() {
 
   dom.questionInput().addEventListener('input', function () {
     autoResizeTextarea(this);
+    updateCharCounter();
   });
 }
 

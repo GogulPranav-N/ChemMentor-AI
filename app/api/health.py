@@ -45,10 +45,11 @@ async def health_check() -> HealthResponse:
         ),
     )
 
+    import os
     return HealthResponse(
         status="ok",
-        app_name="Chemistry AI Tutor",
-        version="1.0.0",
+        app_name=os.getenv("APP_NAME", "Chemistry AI Tutor"),
+        version=os.getenv("APP_VERSION", "1.0.0"),
         gemini_model=llm_client.model_name if llm_client else "not initialised",
         embedding_model=index_stats.embedding_model,
         index_stats=index_stats,

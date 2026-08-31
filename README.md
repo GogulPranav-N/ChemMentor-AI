@@ -244,7 +244,7 @@ curl http://localhost:8000/health
   "status": "ok",
   "app_name": "Chemistry AI Tutor",
   "version": "1.0.0",
-  "gemini_model": "gemini-1.5-flash",
+  "gemini_model": "gemini-3.5-flash",
   "embedding_model": "BAAI/bge-base-en-v1.5",
   "index_stats": { "session_id": null, "vector_count": 0, "embedding_model": "..." }
 }
@@ -266,9 +266,41 @@ curl -X POST http://localhost:8000/upload \
 {
   "session_id": "3f4a1b2c-...",
   "file_name": "chemistry_chapter.pdf",
+  "file_names": ["chemistry_chapter.pdf"],
   "page_count": 42,
   "chunk_count": 187,
   "message": "Document indexed successfully. You can now ask questions."
+}
+```
+
+---
+
+### `POST /upload-multi`
+
+Upload multiple chemistry PDFs in a single batch to enable cross-document search.
+
+```bash
+curl -X POST http://localhost:8000/upload-multi \
+  -F "files=@/path/to/chapter1.pdf" \
+  -F "files=@/path/to/chapter2.pdf"
+```
+
+---
+
+### `DELETE /session/{session_id}`
+
+Purge all uploaded files, vector DB indices, and in-memory caches for a session to free storage.
+
+```bash
+curl -X DELETE http://localhost:8000/session/3f4a1b2c-...
+```
+
+**Response `200`:**
+```json
+{
+  "session_id": "3f4a1b2c-...",
+  "message": "Session and all associated storage successfully deleted.",
+  "deleted": true
 }
 ```
 
